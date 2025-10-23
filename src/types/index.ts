@@ -438,7 +438,13 @@ export interface Notification {
 // 表单输入类型
 export type CreateUserInput = Omit<User, 'id' | 'created_at' | 'updated_at' | 'last_login'>
 export type UpdateUserInput = Partial<Omit<User, 'id' | 'created_at' | 'updated_at'>>
-export type CreateRequirementInput = Omit<Requirement, 'id' | 'created_at' | 'updated_at' | 'creator' | 'assignee' | 'assignees' | 'attachments'> & {
+export type CreateRequirementInput = Omit<
+  Requirement,
+  'id' | 'created_at' | 'updated_at' | 'creator' | 'assignee' | 'assignees' | 'attachments' | 'submitter_id' | 'created_by'
+> & {
+  // 由服务端根据当前登录用户填充，前端可不传
+  submitter_id?: string
+  created_by?: string
   assignee_users?: Array<{
     user_id: string
     role_type: 'primary' | 'secondary' | 'reviewer'
