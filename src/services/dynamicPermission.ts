@@ -451,17 +451,21 @@ export class DynamicPermissionService {
 
       if (error) throw error
 
-      const permissions = new Set<Permission>()
+      const permissionsArr: Permission[] = []
+      const seen = new Set<string>()
       (data || []).forEach(userRole => {
         const rolePerms = (userRole.role?.role_permissions as any[]) || []
         rolePerms.forEach((rp: any) => {
-          if (rp?.permission) {
-            permissions.add(rp.permission as Permission)
+          const perm = rp?.permission as Permission | undefined
+          const id = (perm as any)?.id
+          if (perm && id && !seen.has(id)) {
+            seen.add(id)
+            permissionsArr.push(perm)
           }
         })
       })
 
-      return Array.from(permissions)
+      return permissionsArr
     } catch (error) {
       console.error('获取用户权限失败:', error)
       return []
