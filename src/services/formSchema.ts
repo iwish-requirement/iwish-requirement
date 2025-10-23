@@ -19,7 +19,7 @@ export interface FormSchema {
 
 export interface FormField {
   id: string
-  type: 'text' | 'textarea' | 'select' | 'checkbox' | 'radio' | 'date' | 'file' | 'number'
+  type: 'text' | 'textarea' | 'select' | 'checkbox' | 'radio' | 'date' | 'file' | 'number' | 'image' | 'rich_text' | 'json' | 'switch'
   label: string
   placeholder?: string
   description?: string
