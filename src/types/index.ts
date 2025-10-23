@@ -164,6 +164,11 @@ export interface FormField {
   placeholder?: string
   description?: string
   options?: string[] // 用于 select, radio, checkbox
+  accept?: string
+  multiple?: boolean
+  rows?: number
+  step?: number
+  default_value?: any
   validation?: FormFieldValidation
   conditional_logic?: ConditionalLogic
   order: number
