@@ -49,7 +49,7 @@ export async function subscribePush(userId: string, vapidPublicKey: string): Pro
     }
     const subscription = await activeReg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+      applicationServerKey: (urlBase64ToUint8Array(vapidPublicKey) as unknown as ArrayBuffer)
     });
 
     const payload: PushSubscriptionPayload = {

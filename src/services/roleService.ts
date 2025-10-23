@@ -48,11 +48,17 @@ export class RoleService {
             display_name,
             description,
             category,
+            resource,
+            action,
             icon,
             color,
             is_system,
+            is_active,
             parent_id,
-            sort_order
+            sort_order,
+            created_by,
+            created_at,
+            updated_at
           )
         `)
         .eq('role_id', roleId)
@@ -62,16 +68,16 @@ export class RoleService {
       const rolePermissionsRaw = permissions?.map(p => p.permissions).filter(Boolean) || []
       const rolePermissions: DynamicPermission[] = rolePermissionsRaw.map((perm: any) => ({
         id: perm.id,
-        name: perm.name,
         code: perm.code,
-        display_name: perm.display_name,
+        name: perm.name,
         description: perm.description,
         category: perm.category,
-        icon: perm.icon,
-        color: perm.color,
-        is_system: perm.is_system,
-        parent_id: perm.parent_id,
-        sort_order: perm.sort_order,
+        resource: perm.resource,
+        action: perm.action,
+        conditions: {},
+        is_system: !!perm.is_system,
+        is_active: !!perm.is_active,
+        created_by: perm.created_by,
         created_at: perm.created_at,
         updated_at: perm.updated_at
       }))
