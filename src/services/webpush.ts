@@ -54,7 +54,7 @@ export async function subscribePush(userId: string, vapidPublicKey: string): Pro
 
     const payload: PushSubscriptionPayload = {
       userId,
-      subscription: subscription.toJSON()
+      subscription: subscription.toJSON() as any
     };
 
     const resp = await fetch('/api/push/subscribe', {

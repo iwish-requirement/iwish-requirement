@@ -59,11 +59,26 @@ export class RoleService {
 
       if (permError) throw permError
 
-      const rolePermissions = permissions?.map(p => p.permissions).filter(Boolean) || []
+      const rolePermissionsRaw = permissions?.map(p => p.permissions).filter(Boolean) || []
+      const rolePermissions: DynamicPermission[] = rolePermissionsRaw.map((perm: any) => ({
+        id: perm.id,
+        name: perm.name,
+        code: perm.code,
+        display_name: perm.display_name,
+        description: perm.description,
+        category: perm.category,
+        icon: perm.icon,
+        color: perm.color,
+        is_system: perm.is_system,
+        parent_id: perm.parent_id,
+        sort_order: perm.sort_order,
+        created_at: perm.created_at,
+        updated_at: perm.updated_at
+      }))
 
       return {
         ...role,
-        permissions: rolePermissions as DynamicPermission[]
+        permissions: rolePermissions
       }
     } catch (error) {
       console.error('获取角色详情失败:', error)
