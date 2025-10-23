@@ -1,0 +1,4 @@
+Webview errors at url: http://localhost:3000/dashboard/navigation
+error: 
+ [Window Error]: [unknown-error]: Script error.
+Uncaught TypeError: Cannot read properties of null (reading 'getBoundingClientRect')
