@@ -311,7 +311,7 @@ export class PermissionService {
   }
 
   // 分配角色给用户
-  async assignRoleToUser(userId: string, roleId: string, assignedBy: string): Promise<UserRole> {
+  async assignRoleToUser(userId: string, roleId: string, assignedBy: string): Promise<UserRoleAssignment> {
     try {
       // 检查是否已经分配过此角色
       const { data: existing } = await this.supabase
@@ -424,11 +424,10 @@ export class PermissionService {
       if (error) throw error
 
       const permissions = new Set<Permission>()
-      data?.forEach(userRole => {
-        userRole.role?.role_permissions?.forEach((rp: any) => {
-          if (rp.permission) {
-            permissions.add(rp.permission)
-          }
+      (data || []).forEach(userRole => {
+        const perms = (userRole.role?.role_permissions as any[]) || []
+        perms.forEach((rp: any) => {
+          if (rp?.permission) permissions.add(rp.permission as Permission)
         })
       })
 

@@ -452,10 +452,11 @@ export class DynamicPermissionService {
       if (error) throw error
 
       const permissions = new Set<Permission>()
-      data?.forEach(userRole => {
-        userRole.role?.role_permissions?.forEach((rp: any) => {
-          if (rp.permission) {
-            permissions.add(rp.permission)
+      (data || []).forEach(userRole => {
+        const rolePerms = (userRole.role?.role_permissions as any[]) || []
+        rolePerms.forEach((rp: any) => {
+          if (rp?.permission) {
+            permissions.add(rp.permission as Permission)
           }
         })
       })
