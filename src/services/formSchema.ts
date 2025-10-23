@@ -26,6 +26,9 @@ export interface FormField {
   required: boolean
   options?: string[]
   accept?: string
+  multiple?: boolean
+  rows?: number
+  step?: number
   validation?: any
 }
 
