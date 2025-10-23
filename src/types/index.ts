@@ -201,6 +201,7 @@ export interface FormFieldValidation {
   min_value?: number
   max_value?: number
   pattern?: string // 正则表达式
+  pattern_message?: string // 正则校验失败时的提示信息（兼容字段）
   custom_message?: string
 }
 
@@ -210,7 +211,9 @@ export interface ConditionalLogic {
     operator: 'equals' | 'not_equals' | 'contains' | 'not_contains' | 'greater_than' | 'less_than'
     value: any
   }[]
-  logic: 'and' | 'or'
+  // 统一字段名为 logic，但兼容旧数据 logic_operator
+  logic?: 'and' | 'or'
+  logic_operator?: 'and' | 'or'
 }
 
 export interface FormSchema {
