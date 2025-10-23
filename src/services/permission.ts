@@ -2,11 +2,26 @@ import { createSupabaseClient } from '@/lib/supabase'
 import type { 
   Permission, 
   Role, 
-  UserRole,
   CreateRoleInput,
   UpdateRoleInput,
   PaginatedResponse 
 } from '@/types'
+
+// 与 user_roles 连接查询返回的数据结构一致的本地类型定义（包含嵌套的 role 信息）
+interface UserRoleAssignment {
+  id: string
+  user_id: string
+  role_id: string
+  role?: {
+    id: string
+    name: string
+    description?: string
+    role_permissions?: Array<{ permission?: Permission }>
+  }
+  is_active: boolean
+  assigned_by?: string
+  created_at?: string
+}
 
 export class PermissionService {
   private supabase = createSupabaseClient()
@@ -271,7 +286,7 @@ export class PermissionService {
   // ===============================================
 
   // 获取用户角色
-  async getUserRoles(userId: string): Promise<UserRole[]> {
+  async getUserRoles(userId: string): Promise<UserRoleAssignment[]> {
     try {
       const { data, error } = await this.supabase
         .from('user_roles')

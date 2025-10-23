@@ -5,24 +5,23 @@ import { authService } from '@/services/auth'
 import { permissionService } from '@/services/permission'
 import type { User } from '@/types'
 
-// 用户角色关联类型（区别于 types/index.ts 中的 UserRole 字符串类型）
-interface UserRoleAssignment {
+// 与 permissionService.getUserRoles 返回结构保持一致的类型（从服务内部定义对齐）
+// 为兼容不同查询结构，放宽本地角色记录类型定义
+interface UserRoleRecord {
   id: string
   user_id: string
   role_id: string
-  role: {
-    id: string
-    name: string
+  role?: {
+    id?: string
+    name?: string
     description?: string
-    permissions?: Array<{
-      id: string
-      code: string
-      name: string
-    }>
+    // 两种可能的权限嵌套结构均兼容
+    permissions?: Array<{ id?: string; code?: string; name?: string }>
+    role_permissions?: Array<{ permission?: { id?: string; code?: string; name?: string } }>
   }
-  is_active: boolean
+  is_active?: boolean
   assigned_by?: string
-  created_at: string
+  created_at?: string
 }
 
 interface UserPermissions {
@@ -73,7 +72,7 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
         // 获取用户的角色和权限（使用标准角色权限系统）
         try {
           // 获取用户角色
-          const userRoles = await permissionService.getUserRoles(currentUser.id)
+          const userRoles = await permissionService.getUserRoles(currentUser.id) as unknown as UserRoleRecord[]
           // 获取用户权限
           const userPermissions = await permissionService.getUserPermissions(currentUser.id)
           
@@ -81,7 +80,7 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
           const allPermissions = userPermissions.map(perm => perm.code)
           
           // 提取角色信息
-          const roles = userRoles.map(userRole => ({
+          const roles = userRoles.map((userRole: UserRoleRecord) => ({
             code: userRole.role?.name || '',
             name: userRole.role?.name || '',
             is_primary: true
