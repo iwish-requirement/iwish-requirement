@@ -44,7 +44,8 @@ export class PermissionConfigService {
 
     if (error) throw error
     
-    const categories = [...new Set(data?.map(item => item.category) || [])]
+    const categoriesSet = new Set<string>((data || []).map(item => item.category).filter(Boolean))
+    const categories = Array.from(categoriesSet)
     return categories
   }
 

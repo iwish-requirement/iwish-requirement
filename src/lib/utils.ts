@@ -172,18 +172,27 @@ export function filterEmpty<T>(array: (T | null | undefined)[]): T[] {
 // 数组去重
 export function unique<T>(array: T[], key?: keyof T): T[] {
   if (!key) {
-    return [...new Set(array)]
+    const result: T[] = []
+    const seen = new Set<T>()
+    for (const item of array) {
+      if (!seen.has(item)) {
+        seen.add(item)
+        result.push(item)
+      }
+    }
+    return result
   }
   
-  const seen = new Set()
-  return array.filter(item => {
-    const value = item[key]
-    if (seen.has(value)) {
-      return false
+  const seen = new Set<any>()
+  const result: T[] = []
+  for (const item of array) {
+    const value = (item as any)[key as string]
+    if (!seen.has(value)) {
+      seen.add(value)
+      result.push(item)
     }
-    seen.add(value)
-    return true
-  })
+  }
+  return result
 }
 
 // 计算百分比
