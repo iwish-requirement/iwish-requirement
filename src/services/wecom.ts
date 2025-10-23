@@ -115,7 +115,7 @@ async function sendAppMessage(options: WeComMessageOptions): Promise<void> {
   if (true) {
     // 无企微用户ID或显式关闭企微时，直接走 Web Push 精准通知（按应用内用户ID）
     const { sendPushToUsers } = await import('@/services/push-notify')
-    await sendPushToUsers((options.assigneeAppUserIds || []).filter(Boolean), {
+    await sendPushToUsers((options.assigneeUserIds || []).filter(Boolean), {
       title: options.title || '通知',
       body: options.contentOverride || '',
       linkUrl: options.link
@@ -148,7 +148,7 @@ async function sendAppMessage(options: WeComMessageOptions): Promise<void> {
       if (!resp.ok || result?.ok === false) {
         console.warn('[WeCom] 精准推送失败（API路由）:', result)
         const { sendPushToUsers } = await import('@/services/push-notify')
-        await sendPushToUsers((options.assigneeAppUserIds || []).filter(Boolean), {
+        await sendPushToUsers((options.assigneeUserIds || []).filter(Boolean), {
           title: '新的需求已分配',
           body: content,
           linkUrl: options.link
@@ -158,7 +158,7 @@ async function sendAppMessage(options: WeComMessageOptions): Promise<void> {
   } catch (error) {
     console.warn('[WeCom] 精准推送异常（API路由）:', error)
     const { sendPushToUsers } = await import('@/services/push-notify')
-    await sendPushToUsers((options.assigneeAppUserIds || []).filter(Boolean), {
+    await sendPushToUsers((options.assigneeUserIds || []).filter(Boolean), {
       title: '新的需求已分配',
       body: content,
       linkUrl: options.link
@@ -210,7 +210,8 @@ export async function notifyNewRequirement(req: Partial<Requirement> & { id: str
     dueDate: req.due_date as string | undefined,
     link: requirementLink(req.id),
     assigneeUserIds: (req.assignee_wecom_ids || []),
-    assigneeAppUserIds: (req.assignee_user_ids || [])
+    // 业务上仍保留应用内用户ID，用于 Web Push
+    assigneeUserIds: (req.assignee_user_ids || [])
   })
 }
 
@@ -232,7 +233,7 @@ export async function notifyRatingReminder(params: {
   await sendAppMessage({
     title: '评分提醒',
     assigneeUserIds: params.targets.map(t => t.wecomUserId).filter(Boolean) as string[],
-    assigneeAppUserIds: params.targets.map(t => t.executorId).filter(Boolean),
+    assigneeUserIds: params.targets.map(t => t.executorId).filter(Boolean),
     link: params.link,
     department: undefined,
     submitterName: params.requesterName,
