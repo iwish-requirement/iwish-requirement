@@ -16,7 +16,10 @@ type WeComMessageOptions = {
   title?: string
   department?: string | null
   submitterName?: string | null
+  // 企业微信用户ID（精准推送）
   assigneeUserIds?: string[]
+  // 应用内用户ID（当企微不可用时进行 Web Push）
+  appUserIds?: string[]
   link?: string
   priority?: string | null
   dueDate?: string | null
@@ -115,7 +118,7 @@ async function sendAppMessage(options: WeComMessageOptions): Promise<void> {
   if (true) {
     // 无企微用户ID或显式关闭企微时，直接走 Web Push 精准通知（按应用内用户ID）
     const { sendPushToUsers } = await import('@/services/push-notify')
-    await sendPushToUsers((options.assigneeUserIds || []).filter(Boolean), {
+    await sendPushToUsers((options.appUserIds || []).filter(Boolean), {
       title: options.title || '通知',
       body: options.contentOverride || '',
       linkUrl: options.link
@@ -209,9 +212,10 @@ export async function notifyNewRequirement(req: Partial<Requirement> & { id: str
     priority: (req as any).priority,
     dueDate: req.due_date as string | undefined,
     link: requirementLink(req.id),
+    // 企业微信用户ID，用于企微精准推送
     assigneeUserIds: (req.assignee_wecom_ids || []),
-    // 业务上仍保留应用内用户ID，用于 Web Push
-    assigneeUserIds: (req.assignee_user_ids || [])
+    // 应用内用户ID（当企微不可用时，Web Push 精准通知）
+    appUserIds: (req.assignee_user_ids || [])
   })
 }
 
@@ -233,7 +237,7 @@ export async function notifyRatingReminder(params: {
   await sendAppMessage({
     title: '评分提醒',
     assigneeUserIds: params.targets.map(t => t.wecomUserId).filter(Boolean) as string[],
-    assigneeUserIds: params.targets.map(t => t.executorId).filter(Boolean),
+    appUserIds: params.targets.map(t => t.executorId).filter(Boolean),
     link: params.link,
     department: undefined,
     submitterName: params.requesterName,
