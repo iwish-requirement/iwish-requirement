@@ -453,11 +453,13 @@ export class DynamicPermissionService {
 
       const permissionsArr: Permission[] = []
       const seen: Record<string, boolean> = {}
-      (data || []).forEach(userRole => {
-        const rolePerms = (userRole.role?.role_permissions as any[]) || []
+      const rows = Array.isArray(data) ? data : []
+      rows.forEach(userRole => {
+        const rawRolePerms = (userRole && userRole.role && (userRole.role as any).role_permissions) as any
+        const rolePerms = Array.isArray(rawRolePerms) ? rawRolePerms : []
         rolePerms.forEach((rp: any) => {
-          const perm = rp?.permission as Permission | undefined
-          const id = (perm as any)?.id
+          const perm = rp && (rp.permission as Permission | undefined)
+          const id = perm ? (perm as any).id : undefined
           if (perm && id && !seen[id]) {
             seen[id] = true
             permissionsArr.push(perm)
