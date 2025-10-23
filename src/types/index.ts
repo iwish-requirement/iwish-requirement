@@ -198,6 +198,9 @@ export type FormFieldType =
 export interface FormFieldValidation {
   min_length?: number
   max_length?: number
+  // 统一：UI 使用 min/max；兼容：旧定义使用 min_value/max_value
+  min?: number
+  max?: number
   min_value?: number
   max_value?: number
   pattern?: string // 正则表达式
