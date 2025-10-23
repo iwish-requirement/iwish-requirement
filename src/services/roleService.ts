@@ -40,47 +40,41 @@ export class RoleService {
       const { data: permissions, error: permError } = await this.supabase
         .from('role_permissions')
         .select(`
-          permission_id,
-          permissions (
+          permission:permissions (
             id,
             name,
             code,
-            display_name,
             description,
             category,
-            resource,
-            action,
-            icon,
-            color,
-            is_system,
-            is_active,
-            parent_id,
-            sort_order,
-            created_by,
-            created_at,
-            updated_at
+            created_at
           )
         `)
         .eq('role_id', roleId)
 
       if (permError) throw permError
 
-      const rolePermissionsRaw = permissions?.map(p => p.permissions).filter(Boolean) || []
-      const rolePermissions: DynamicPermission[] = rolePermissionsRaw.map((perm: any) => ({
-        id: perm.id,
-        code: perm.code,
-        name: perm.name,
-        description: perm.description,
-        category: perm.category,
-        resource: perm.resource,
-        action: perm.action,
-        conditions: {},
-        is_system: !!perm.is_system,
-        is_active: !!perm.is_active,
-        created_by: perm.created_by,
-        created_at: perm.created_at,
-        updated_at: perm.updated_at
-      }))
+      const rolePermissionsRaw = permissions?.map((p: any) => p.permission).filter(Boolean) || []
+      const rolePermissions: DynamicPermission[] = rolePermissionsRaw.map((perm: any) => {
+        const code: string = perm.code || ''
+        const parts = code.split('.')
+        const resource = parts[0] || ''
+        const action = parts.slice(1).join('.') || ''
+        return {
+          id: perm.id,
+          code,
+          name: perm.name,
+          description: perm.description,
+          category: perm.category,
+          resource,
+          action,
+          conditions: {},
+          is_system: false,
+          is_active: true,
+          created_by: undefined,
+          created_at: perm.created_at,
+          updated_at: perm.created_at
+        }
+      })
 
       return {
         ...role,
@@ -98,7 +92,8 @@ export class RoleService {
       const { data, error } = await this.supabase
         .from('permissions')
         .select('*')
-        .order('sort_order', { ascending: true })
+        .order('category', { ascending: true })
+        .order('name', { ascending: true })
 
       if (error) throw error
       return data || []
