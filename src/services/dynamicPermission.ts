@@ -452,14 +452,14 @@ export class DynamicPermissionService {
       if (error) throw error
 
       const permissionsArr: Permission[] = []
-      const seen = new Set<string>()
+      const seen: Record<string, boolean> = {}
       (data || []).forEach(userRole => {
         const rolePerms = (userRole.role?.role_permissions as any[]) || []
         rolePerms.forEach((rp: any) => {
           const perm = rp?.permission as Permission | undefined
           const id = (perm as any)?.id
-          if (perm && id && !seen.has(id)) {
-            seen.add(id)
+          if (perm && id && !seen[id]) {
+            seen[id] = true
             permissionsArr.push(perm)
           }
         })

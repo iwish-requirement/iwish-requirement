@@ -424,14 +424,14 @@ export class PermissionService {
       if (error) throw error
 
       const permissionsArr: Permission[] = []
-      const seen = new Set<string>()
+      const seen: Record<string, boolean> = {}
       (data || []).forEach(userRole => {
         const perms = (userRole.role?.role_permissions as any[]) || []
         perms.forEach((rp: any) => {
           const perm = rp?.permission as Permission | undefined
           const id = (perm as any)?.id
-          if (perm && id && !seen.has(id)) {
-            seen.add(id)
+          if (perm && id && !seen[id]) {
+            seen[id] = true
             permissionsArr.push(perm)
           }
         })
