@@ -230,21 +230,7 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
   const isAdmin = userPermissions ? userPermissions.permissions.includes('system.admin') : false
   const isSuperAdmin = user ? user.role === 'super_admin' : false
 
-  // 调试信息
-  if (userPermissions && user?.email === 'lin88@iwishweb.com') {
-    console.log('用户权限调试:', {
-      userPermissions: userPermissions.permissions,
-      canManageSystem,
-      canManageUsers,
-      hasSystemAdmin: userPermissions.permissions.includes('system.admin'),
-      hasUserManage: userPermissions.permissions.includes('user.manage'),
-      hasPermissionManage: userPermissions.permissions.includes('permission.manage'),
-      // 额外调试 canManageSystem 的计算
-      canManageSystemCheck: userPermissions ? userPermissions.permissions.includes('system.admin') : false,
-      userPermissionsExists: !!userPermissions,
-      systemAdminInArray: userPermissions.permissions.indexOf('system.admin')
-    })
-  }
+
 
   const refreshPermissions = async () => {
     await loadUserAndPermissions()
