@@ -311,7 +311,7 @@ export class PermissionService {
   }
 
   // 分配角色给用户
-  async assignRoleToUser(userId: string, roleId: string, assignedBy: string): Promise<UserRoleAssignment> {
+  async assignRoleToUser(userId: string, roleId: string, assignedBy: string): Promise<{ id: string }> {
     try {
       // 检查是否已经分配过此角色
       const { data: existing } = await this.supabase

@@ -5,14 +5,9 @@
 
 export type PushSubscriptionPayload = {
   userId: string;
-  subscription: PushSubscriptionJSON;
+  // Use broad type here to avoid DOM lib conflicts; server will validate shape
+  subscription: any;
 };
-
-// Local fallback for TS: PushSubscriptionJSON shape
-interface PushSubscriptionJSON {
-  endpoint: string
-  keys: { p256dh: string; auth: string }
-}
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
