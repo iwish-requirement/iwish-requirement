@@ -294,9 +294,7 @@ function DashboardContent({ children }: DashboardLayoutProps) {
                 {sidebarCollapsed ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
               </Button>
               <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg flex items-center justify-center">
-                  <span className="text-white font-bold text-sm">iW</span>
-                </div>
+                <img src="/logo.png" alt="iWish Logo" className="h-8 w-8 rounded-lg object-contain" />
                 <h1 className="text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">iWish 需求管理系统</h1>
               </div>
             </div>
