@@ -112,12 +112,15 @@ export class UserService {
         .single()
 
       if (defaultRole) {
-        await this.supabase
-          .from('user_roles')
-          .insert({
-            user_id: data.id,
-            role_id: defaultRole.id
-          })
+        const resp = await fetch('/api/admin/user-roles/assign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: data.id, roleId: defaultRole.id, assignedBy: data.id })
+        })
+        if (!resp.ok) {
+          const json = await resp.json().catch(() => ({}))
+          console.error('创建用户后分配默认角色失败:', json)
+        }
       }
 
       return data
@@ -141,13 +144,20 @@ export class UserService {
 
       // 如果更新了角色，需要更新角色关联
       if (userData.role) {
-        // 删除旧的角色关联
-        await this.supabase
-          .from('user_roles')
-          .delete()
-          .eq('user_id', id)
+        // 删除旧的角色关联（服务端）
+        {
+          const resp = await fetch('/api/admin/user-roles/clear', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: id })
+          })
+          if (!resp.ok) {
+            const json = await resp.json().catch(() => ({}))
+            console.error('更新用户时清空角色失败:', json)
+          }
+        }
 
-        // 添加新的角色关联
+        // 添加新的角色关联（服务端）
         const { data: newRole } = await this.supabase
           .from('roles')
           .select('id')
@@ -155,12 +165,15 @@ export class UserService {
           .single()
 
         if (newRole) {
-          await this.supabase
-            .from('user_roles')
-            .insert({
-              user_id: id,
-              role_id: newRole.id
-            })
+          const resp = await fetch('/api/admin/user-roles/assign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: id, roleId: newRole.id, assignedBy: id })
+          })
+          if (!resp.ok) {
+            const json = await resp.json().catch(() => ({}))
+            console.error('更新用户时分配新角色失败:', json)
+          }
         }
       }
 

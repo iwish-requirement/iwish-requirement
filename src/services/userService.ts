@@ -88,25 +88,30 @@ export class UserService {
         return userData
       }
 
-      // 删除用户的所有现有角色分配
-      await this.supabase
-        .from('user_roles')
-        .delete()
-        .eq('user_id', userId)
-
-      // 分配新角色
-      const { error: assignError } = await this.supabase
-        .from('user_roles')
-        .insert({
-          user_id: userId,
-          role_id: roleData.id,
-          assigned_by: userId, // 临时使用用户自己的ID，实际应该是操作者ID
-          is_active: true
+      // 删除用户的所有现有角色分配（服务端接口）
+      {
+        const resp = await fetch('/api/admin/user-roles/clear', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId })
         })
+        const json = await resp.json()
+        if (!resp.ok) {
+          console.error('清空用户角色失败:', json)
+        }
+      }
 
-      if (assignError) {
-        console.error('分配角色失败:', assignError)
-        // 即使角色分配失败，用户表已更新，返回用户数据
+      // 分配新角色（服务端接口）
+      {
+        const resp = await fetch('/api/admin/user-roles/assign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, roleId: roleData.id, assignedBy: userId })
+        })
+        const json = await resp.json()
+        if (!resp.ok) {
+          console.error('分配角色失败:', json)
+        }
       }
 
       return userData
