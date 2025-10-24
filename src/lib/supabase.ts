@@ -10,6 +10,17 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 // 客户端组件客户端
 export const  createSupabaseClient = () => createClientComponentClient()
 
+// 服务端 Admin 客户端（使用 SERVICE_ROLE 密钥，仅在服务端环境）
+export const createSupabaseServerAdmin = () => {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceKey) {
+    throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY')
+  }
+  return createClient(supabaseUrl, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false }
+  })
+}
+
 // 数据库类型定义
 export type Database = {
   public: {

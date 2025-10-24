@@ -175,23 +175,19 @@ export class UserService {
     role: string
     phone?: string
     title?: string | null
+    initialPassword?: string
   }): Promise<User> {
     try {
-      const { data, error } = await this.supabase
-        .from('users')
-        .insert({
-          id: crypto.randomUUID(),
-          ...userData,
-          title: userData.title ?? null,
-          active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .select()
-        .single()
-
-      if (error) throw error
-      return data
+      const resp = await fetch('/api/admin/users/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userData)
+      })
+      const json = await resp.json()
+      if (!resp.ok || !json.ok) {
+        throw new Error(json.error || '创建用户失败')
+      }
+      return json.user as User
     } catch (error) {
       console.error('创建用户失败:', error)
       throw error
