@@ -69,7 +69,8 @@ export default function UsersPage() {
     position: '',
     title: '',
     role: 'employee',
-    phone: ''
+    phone: '',
+    initialPassword: ''
   })
 
   const [roleFormData, setRoleFormData] = useState({
@@ -244,7 +245,8 @@ export default function UsersPage() {
       position: '',
       title: '',
       role: 'employee',
-      phone: ''
+      phone: '',
+      initialPassword: ''
     })
   }
 
@@ -633,6 +635,17 @@ export default function UsersPage() {
                 </SelectContent>
               </Select>
             </div>
+            {/* 初始密码（可选） */}
+            <div className="space-y-2">
+              <Label htmlFor="initial_password">初始密码（留空则使用默认）</Label>
+              <Input
+                id="initial_password"
+                type="password"
+                value={formData.initialPassword}
+                onChange={(e) => setFormData({ ...formData, initialPassword: e.target.value })}
+                placeholder="例如：123456"
+              />
+            </div>
           </div>
           
           <DialogFooter>
@@ -744,6 +757,17 @@ export default function UsersPage() {
                 placeholder="联系电话"
               />
             </div>
+            {/* 初始密码（可选） */}
+            <div className="space-y-2">
+              <Label htmlFor="initial_password">初始密码（留空则使用默认）</Label>
+              <Input
+                id="initial_password"
+                type="password"
+                value={formData.initialPassword}
+                onChange={(e) => setFormData({ ...formData, initialPassword: e.target.value })}
+                placeholder="例如：123456"
+              />
+            </div>
           </div>
           
           <DialogFooter>
@@ -807,6 +831,17 @@ export default function UsersPage() {
                 onChange={(e) => setRoleFormData({ ...roleFormData, reason: e.target.value })}
                 placeholder="请说明角色变更的原因..."
                 rows={3}
+              />
+            </div>
+            {/* 初始密码（可选） */}
+            <div className="space-y-2">
+              <Label htmlFor="initial_password">初始密码（留空则使用默认）</Label>
+              <Input
+                id="initial_password"
+                type="password"
+                value={formData.initialPassword}
+                onChange={(e) => setFormData({ ...formData, initialPassword: e.target.value })}
+                placeholder="例如：123456"
               />
             </div>
           </div>
