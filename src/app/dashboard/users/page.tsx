@@ -62,7 +62,16 @@ export default function UsersPage() {
   const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false)
 
   // 表单数据
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{ 
+    email: string
+    full_name: string
+    department: string
+    position: string
+    title: string
+    role: string
+    phone: string
+    initialPassword: string
+  }>({
     email: '',
     full_name: '',
     department: '',
@@ -262,9 +271,10 @@ export default function UsersPage() {
       full_name: user.full_name || '',
       department: user.department,
       position: user.position,
-      title: (user as any).title || '',
-      role: user.role,
-      phone: user.phone || ''
+      title: String((user as any).title || ''),
+      role: String(user.role || ''),
+      phone: String(user.phone || ''),
+      initialPassword: ''
     })
     
     // 如果用户有部门，加载该部门的岗位
