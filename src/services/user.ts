@@ -23,7 +23,7 @@ export class UserService {
 
       let query = this.supabase
         .from('users')
-        .select('*', { count: 'exact' })
+        .select('id, full_name, email, department, position, role, active, avatar_url, created_at, updated_at', { count: 'exact' })
 
       // 搜索过滤
       if (params?.search) {
@@ -81,7 +81,7 @@ export class UserService {
     try {
       const { data, error } = await this.supabase
         .from('users')
-        .select('*')
+        .select('id, email, full_name, avatar_url, department, position, role, active, created_at, updated_at, last_login, wecom_user_id')
         .eq('id', id)
         .single()
 

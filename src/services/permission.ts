@@ -41,7 +41,7 @@ export class PermissionService {
     try {
       const { data, error } = await this.supabase
         .from('permissions')
-        .select('*')
+        .select('id, name, code, display_name, description, category, icon, color, is_system, parent_id, sort_order, created_at, updated_at')
         .order('category', { ascending: true })
         .order('name', { ascending: true })
 

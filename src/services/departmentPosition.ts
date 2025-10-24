@@ -63,7 +63,7 @@ class DepartmentPositionService {
     try {
       let query = this.supabase
         .from('departments')
-        .select('*')
+        .select('id, code, name, description, is_active, sort_order, created_at, updated_at')
         .order('sort_order', { ascending: true })
         .order('name', { ascending: true })
 
@@ -85,7 +85,7 @@ class DepartmentPositionService {
     try {
       const { data, error } = await this.supabase
         .from('departments')
-        .select('*')
+        .select('id, code, name, description, is_active, sort_order, created_at, updated_at')
         .eq('code', code)
         .single()
 
@@ -166,7 +166,7 @@ class DepartmentPositionService {
     try {
       let query = this.supabase
         .from('positions')
-        .select('*')
+        .select('id, code, name, description, department_code, is_active, sort_order, created_at, updated_at')
         .order('sort_order', { ascending: true })
         .order('name', { ascending: true })
 
@@ -192,7 +192,7 @@ class DepartmentPositionService {
     try {
       const { data, error } = await this.supabase
         .from('positions')
-        .select('*')
+        .select('id, code, name, description, department_code, is_active, sort_order, created_at, updated_at')
         .eq('code', code)
         .single()
 

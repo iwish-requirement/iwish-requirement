@@ -408,7 +408,7 @@ export class RequirementService {
       // 2) 读取需求记录（用于关联性判断）
       const { data: req, error: fetchErr } = await this.supabase
         .from('requirements')
-        .select('*')
+        .select('id, title, description, status, priority, submitter_id, submitter_name, assignee_id, assignee_name, assignee_department, assignee_position, created_at, updated_at, due_date, started_at, completed_at, form_data, form_schema_id, tags')
         .eq('id', id)
         .single()
       if (fetchErr || !req) {
@@ -587,7 +587,7 @@ export class RequirementService {
     try {
       const { data, error } = await this.supabase
         .from('requirements')
-        .select('*')
+        .select('id, title, description, status, priority, submitter_id, created_by, department, assignee_position, assignee_id, assignee_name, assignee_department, created_at, updated_at, due_date, form_data, tags')
         .order('created_at', { ascending: false })
         .limit(limit)
 
@@ -607,7 +607,7 @@ export class RequirementService {
 
       const { data, error } = await this.supabase
         .from('requirements')
-        .select('*')
+        .select('id, title, status, due_date, assignee_id, assignee_name')
         .lte('due_date', futureDate.toISOString())
         .not('status', 'in', '(completed,cancelled,rejected)')
         .order('due_date', { ascending: true })
@@ -627,7 +627,7 @@ export class RequirementService {
 
       const { data, error } = await this.supabase
         .from('requirements')
-        .select('*')
+        .select('id, title, status, due_date, assignee_id, assignee_name')
         .lt('due_date', now)
         .not('status', 'in', '(completed,cancelled,rejected)')
         .order('due_date', { ascending: true })

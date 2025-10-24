@@ -15,7 +15,7 @@ export class RoleService {
     try {
       const { data, error } = await this.supabase
         .from('roles')
-        .select('*')
+        .select('id, name, description, is_active, created_at, updated_at')
         .order('created_at', { ascending: false })
 
       if (error) throw error
@@ -31,7 +31,7 @@ export class RoleService {
     try {
       const { data: role, error: roleError } = await this.supabase
         .from('roles')
-        .select('*')
+        .select('id, name, description, is_active, created_at, updated_at')
         .eq('id', roleId)
         .single()
 

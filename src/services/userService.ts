@@ -9,7 +9,7 @@ export class UserService {
     try {
       const { data, error } = await this.supabase
         .from('users')
-        .select('*')
+        .select('id, full_name, email, department, position, role, active, avatar_url, created_at, updated_at')
         .order('created_at', { ascending: false })
 
       if (error) throw error
@@ -25,7 +25,7 @@ export class UserService {
     try {
       const { data, error } = await this.supabase
         .from('users')
-        .select('*')
+        .select('id, email, full_name, avatar_url, department, position, role, active, created_at, updated_at, last_login, wecom_user_id')
         .eq('id', userId)
         .single()
 
@@ -235,7 +235,7 @@ export class UserService {
     try {
       const { data, error } = await this.supabase
         .from('users')
-        .select('*')
+        .select('id, full_name, email, department, position, role, active, avatar_url')
         .or(`full_name.ilike.%${query}%,email.ilike.%${query}%,department.ilike.%${query}%,position.ilike.%${query}%`)
         .order('created_at', { ascending: false })
 
@@ -252,7 +252,7 @@ export class UserService {
     try {
       const { data, error } = await this.supabase
         .from('users')
-        .select('*')
+        .select('id, full_name, email, department, position, role, active, avatar_url')
         .eq('department', department)
         .eq('active', true)
         .order('full_name')
@@ -270,7 +270,7 @@ export class UserService {
     try {
       const { data, error } = await this.supabase
         .from('users')
-        .select('*')
+        .select('id, full_name, email, department, position, role, active, avatar_url')
         .eq('role', role)
         .eq('active', true)
         .order('full_name')

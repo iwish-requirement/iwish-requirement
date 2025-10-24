@@ -13,7 +13,7 @@ export class AuthService {
 
       const { data: userData, error: userError } = await this.supabase
         .from('users')
-        .select('*')
+        .select('id, email, full_name, avatar_url, department, position, role, active, created_at, updated_at, last_login, wecom_user_id')
         .eq('email', authUser.email)
         .maybeSingle()
 

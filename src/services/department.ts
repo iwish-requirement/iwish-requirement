@@ -31,7 +31,7 @@ export class DepartmentService {
     try {
       const { data, error } = await this.supabase
         .from('departments')
-        .select('*')
+        .select('id, code, name, description, is_active, sort_order, created_at, updated_at')
         .eq('is_active', true)
         .order('sort_order', { ascending: true })
 
@@ -48,7 +48,7 @@ export class DepartmentService {
     try {
       let query = this.supabase
         .from('positions')
-        .select('*')
+        .select('id, code, name, description, department_code, is_active, sort_order, created_at, updated_at')
         .eq('is_active', true)
 
       if (departmentCode) {
