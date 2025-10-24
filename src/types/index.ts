@@ -27,6 +27,18 @@ export interface User {
   last_login?: string
 }
 
+// 用户精简类型：用于列表/搜索返回，不包含时间元数据
+export interface UserSummary {
+  id: string
+  email: string
+  full_name?: string
+  avatar_url?: string
+  department: string
+  position: string
+  role: UserRole
+  active: boolean
+}
+
 // 权限相关类型 - 动态权限系统
 export interface Permission {
   id: string
@@ -67,6 +79,17 @@ export interface Role {
   name: string
   description?: string
   permissions: Permission[]
+  is_active: boolean
+  created_by?: string
+  created_at: string
+  updated_at: string
+}
+
+// 角色精简类型：列表/基础信息场景使用，不包含权限列表
+export interface RoleSummary {
+  id: string
+  name: string
+  description?: string
   is_active: boolean
   created_by?: string
   created_at: string
@@ -272,6 +295,16 @@ export interface Requirement {
   creator?: User // 创建者信息
   assignee?: User // 执行人信息
   attachments?: Attachment[]
+}
+
+// 轻量需求摘要类型（列表/到期/逾期）
+export interface RequirementSummary {
+  id: string
+  title: string
+  status: RequirementStatus
+  due_date?: string
+  assignee_id?: string
+  assignee_name?: string
 }
 
 // 需求执行人类型

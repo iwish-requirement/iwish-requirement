@@ -1,5 +1,5 @@
 import { createSupabaseClient } from '@/lib/supabase'
-import type { User, Role } from '@/types'
+import type { User, UserSummary, Role } from '@/types'
 
 export class UserService {
   private supabase = createSupabaseClient()
@@ -231,7 +231,7 @@ export class UserService {
   }
 
   // 搜索用户
-  async searchUsers(query: string): Promise<User[]> {
+  async searchUsers(query: string): Promise<UserSummary[]> {
     try {
       const { data, error } = await this.supabase
         .from('users')
@@ -240,7 +240,7 @@ export class UserService {
         .order('created_at', { ascending: false })
 
       if (error) throw error
-      return data || []
+      return (data || []) as UserSummary[]
     } catch (error) {
       console.error('搜索用户失败:', error)
       throw error
@@ -248,7 +248,7 @@ export class UserService {
   }
 
   // 按部门获取用户
-  async getUsersByDepartment(department: string): Promise<User[]> {
+  async getUsersByDepartment(department: string): Promise<UserSummary[]> {
     try {
       const { data, error } = await this.supabase
         .from('users')
@@ -258,7 +258,7 @@ export class UserService {
         .order('full_name')
 
       if (error) throw error
-      return data || []
+      return (data || []) as UserSummary[]
     } catch (error) {
       console.error('获取部门用户失败:', error)
       throw error
@@ -266,7 +266,7 @@ export class UserService {
   }
 
   // 按角色获取用户
-  async getUsersByRole(role: string): Promise<User[]> {
+  async getUsersByRole(role: string): Promise<UserSummary[]> {
     try {
       const { data, error } = await this.supabase
         .from('users')
@@ -276,7 +276,7 @@ export class UserService {
         .order('full_name')
 
       if (error) throw error
-      return data || []
+      return (data || []) as UserSummary[]
     } catch (error) {
       console.error('获取角色用户失败:', error)
       throw error

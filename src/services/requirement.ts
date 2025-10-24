@@ -3,6 +3,7 @@ import { permissionService } from '@/services/permission'
 import { wecomNotify } from '@/services/wecom'
 import type { 
   Requirement, 
+  RequirementSummary,
   CreateRequirementInput, 
   UpdateRequirementInput, 
   PaginatedResponse,
@@ -600,7 +601,7 @@ export class RequirementService {
   }
 
   // 获取即将到期的需求
-  async getUpcomingRequirements(days: number = 7): Promise<Requirement[]> {
+  async getUpcomingRequirements(days: number = 7): Promise<RequirementSummary[]> {
     try {
       const futureDate = new Date()
       futureDate.setDate(futureDate.getDate() + days)
@@ -613,7 +614,7 @@ export class RequirementService {
         .order('due_date', { ascending: true })
 
       if (error) throw error
-      return data || []
+      return (data || []) as RequirementSummary[]
     } catch (error) {
       console.error('获取即将到期需求失败:', error)
       return []
@@ -621,7 +622,7 @@ export class RequirementService {
   }
 
   // 获取逾期需求
-  async getOverdueRequirements(): Promise<Requirement[]> {
+  async getOverdueRequirements(): Promise<RequirementSummary[]> {
     try {
       const now = new Date().toISOString()
 
@@ -633,7 +634,7 @@ export class RequirementService {
         .order('due_date', { ascending: true })
 
       if (error) throw error
-      return data || []
+      return (data || []) as RequirementSummary[]
     } catch (error) {
       console.error('获取逾期需求失败:', error)
       return []

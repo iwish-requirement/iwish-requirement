@@ -1,5 +1,5 @@
 import { createSupabaseClient } from '@/lib/supabase'
-import type { Role, Permission, DynamicPermission } from '@/types'
+import type { Role, RoleSummary, Permission, DynamicPermission } from '@/types'
 
 export class RoleService {
   private supabase = createSupabaseClient()
@@ -11,7 +11,7 @@ export class RoleService {
   }
 
   // 获取所有角色
-  async getRoles(): Promise<Role[]> {
+  async getRoles(): Promise<RoleSummary[]> {
     try {
       const { data, error } = await this.supabase
         .from('roles')
@@ -19,7 +19,7 @@ export class RoleService {
         .order('created_at', { ascending: false })
 
       if (error) throw error
-      return data || []
+      return (data || []) as RoleSummary[]
     } catch (error) {
       console.error('获取角色列表失败:', error)
       throw error
@@ -27,7 +27,7 @@ export class RoleService {
   }
 
   // 获取角色详情（包含权限）
-  async getRoleWithPermissions(roleId: string): Promise<Role & { permissions: DynamicPermission[] }> {
+  async getRoleWithPermissions(roleId: string): Promise<RoleSummary & { permissions: DynamicPermission[] }> {
     try {
       const { data: role, error: roleError } = await this.supabase
         .from('roles')
@@ -77,7 +77,7 @@ export class RoleService {
       })
 
       return {
-        ...role,
+        ...(role as RoleSummary),
         permissions: rolePermissions
       }
     } catch (error) {
