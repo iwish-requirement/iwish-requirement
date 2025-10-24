@@ -313,40 +313,17 @@ export class PermissionService {
   // 分配角色给用户
   async assignRoleToUser(userId: string, roleId: string, assignedBy: string): Promise<{ id: string }> {
     try {
-      // 检查是否已经分配过此角色
-      const { data: existing } = await this.supabase
-        .from('user_roles')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('role_id', roleId)
-        .single()
-
-      if (existing) {
-        throw new Error('用户已拥有此角色')
+      const resp = await fetch('/api/admin/user-roles/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, roleId, assignedBy })
+      })
+      const json = await resp.json()
+      if (!resp.ok) {
+        throw new Error(json?.error || '角色分配失败')
       }
-
-      const { data, error } = await this.supabase
-        .from('user_roles')
-        .insert({
-          user_id: userId,
-          role_id: roleId,
-          assigned_by: assignedBy,
-          is_active: true
-        })
-        .select(`
-          *,
-          role:roles (
-            *,
-            role_permissions (
-              permission:permissions (*)
-            )
-          )
-        `)
-        .single()
-
-      if (error) throw error
       this.dispatchPermissionUpdated()
-      return data
+      return { id: json.id }
     } catch (error) {
       console.error('分配角色失败:', error)
       throw error
@@ -356,13 +333,15 @@ export class PermissionService {
   // 移除用户角色
   async removeRoleFromUser(userId: string, roleId: string): Promise<void> {
     try {
-      const { error } = await this.supabase
-        .from('user_roles')
-        .delete()
-        .eq('user_id', userId)
-        .eq('role_id', roleId)
-
-      if (error) throw error
+      const resp = await fetch('/api/admin/user-roles/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, roleId })
+      })
+      const json = await resp.json()
+      if (!resp.ok) {
+        throw new Error(json?.error || '移除角色失败')
+      }
       this.dispatchPermissionUpdated()
     } catch (error) {
       console.error('移除用户角色失败:', error)
