@@ -103,6 +103,7 @@ export default function EditRequirementPage() {
             .select('id,file_name,file_url,file_size,file_type,uploaded_by,created_at')
             .eq('requirement_id', requirementId)
             .order('created_at', { ascending: false })
+            .limit(100)
           if (!attErr && atts) {
             setAttachments(atts as ReqAttachment[])
           }

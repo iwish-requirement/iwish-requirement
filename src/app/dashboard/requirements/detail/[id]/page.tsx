@@ -170,6 +170,7 @@ export default function RequirementDetailPage() {
           .select('id, user_id, content, created_at, parent_id')
           .eq('requirement_id', requirementId)
           .order('created_at', { ascending: true })
+          .limit(200)
         if (!error) {
           const base = (data || []) as Array<{ id: string; user_id?: string; content: string; created_at: string }>
           const ids = base.map(c => c.id)

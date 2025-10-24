@@ -32,17 +32,23 @@ export class RequirementService {
       let query = this.supabase
         .from('requirements')
         .select(`
-          *,
-          assignees:requirement_assignees(
-            id,
-            user_id,
-            user_name,
-            user_email,
-            user_department,
-            user_position,
-            role_type,
-            assigned_at
-          )
+          id,
+          title,
+          description,
+          status,
+          priority,
+          created_at,
+          updated_at,
+          due_date,
+          assignee_id,
+          assignee_name,
+          assignee_department,
+          assignee_position,
+          submitter_id,
+          submitter_name,
+          created_by,
+          department,
+          form_data
         `, { count: 'exact' })
 
       // 权限过滤：根据用户权限动态过滤
@@ -135,17 +141,24 @@ export class RequirementService {
       const { data, error } = await this.supabase
         .from('requirements')
         .select(`
-          *,
-          assignees:requirement_assignees(
-            id,
-            user_id,
-            user_name,
-            user_email,
-            user_department,
-            user_position,
-            role_type,
-            assigned_at
-          )
+          id,
+          title,
+          description,
+          status,
+          priority,
+          created_at,
+          updated_at,
+          due_date,
+          assignee_id,
+          assignee_name,
+          assignee_department,
+          assignee_position,
+          submitter_id,
+          submitter_name,
+          created_by,
+          department,
+          form_data,
+          form_schema_id
         `)
         .eq('id', id)
         .single()
