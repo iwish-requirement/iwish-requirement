@@ -1,5 +1,5 @@
-import { createHmac } from "crypto";
 import { supabaseAdmin } from "./supabaseAdmin";
+
 
 export type WebhookEventStatus = "pending" | "success" | "failed";
 
@@ -45,14 +45,37 @@ function buildEnvelope<T>(eventType: string, payload: T): WebhookPayloadEnvelope
   };
 }
 
-function signBody(secret: string | null, body: string, timestamp: string): string | null {
+async function signBody(secret: string | null, body: string, timestamp: string): Promise<string | null> {
   if (!secret) {
     return null;
   }
-  const hmac = createHmac("sha256", secret);
-  hmac.update(`${timestamp}.${body}`);
-  return hmac.digest("hex");
+
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(secret);
+  const messageData = encoder.encode(`${timestamp}.${body}`);
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyData,
+    {
+      name: "HMAC",
+      hash: "SHA-256",
+    },
+    false,
+    ["sign"],
+  );
+
+  const signatureBuffer = await crypto.subtle.sign("HMAC", key, messageData);
+  const signatureBytes = new Uint8Array(signatureBuffer);
+
+  let hex = "";
+  for (const byte of signatureBytes) {
+    hex += byte.toString(16).padStart(2, "0");
+  }
+
+  return hex;
 }
+
 
 export async function enqueueAndDispatchWebhook<T>(
   eventType: string,
@@ -154,7 +177,8 @@ export async function dispatchSingleEvent(eventId: number): Promise<void> {
 
   const timestamp = new Date().toISOString();
   const body = JSON.stringify(event.payload);
-  const signature = signBody(sub.secret, body, timestamp);
+  const signature = await signBody(sub.secret, body, timestamp);
+
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
