@@ -1,0 +1,62 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependency directories
+node_modules/
+pnpm-lock.yaml.tmp
+
+# Build output
+dist/
+dist-ssr/
+build/
+.out/
+.next/
+.next/
+out/
+
+# Vite / Next / tooling caches
+.vite/
+.turbo/
+.cache/
+.npm/
+.yarn/
+.pnpm-store/
+
+# Environment variables (VERY IMPORTANT: keep secrets out of git)
+.env
+.env.*
+!.env.example
+
+# Local config files
+*.local
+*.local.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Test / coverage outputs (if you add tests later)
+coverage/
+jest-html-reporters-*.html
+jest-results.json
+
+# OS-specific
+Thumbs.db
+ehthumbs.db
