@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest, ensureAdmin } from "../../../../lib/serverAuth";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 type RawUserRow = {
   id: number;

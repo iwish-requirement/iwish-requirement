@@ -7,7 +7,7 @@ import {
   AiReportMetric,
 } from "../../../../types";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 type DemandRow = {
   id: number;

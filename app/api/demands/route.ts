@@ -3,7 +3,7 @@ import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest, ensureActiveUser } from "../../../lib/serverAuth";
 import { DemandStatus, Priority, Demand } from "../../../types";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 const DEPT_SLUG_MAP: Record<string, string> = {
   d1: "tech",

@@ -4,7 +4,7 @@ import { getBusinessUserFromRequest } from "../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../lib/serverPermissions";
 
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 type ScoreRecordRow = {
   target_user_id: number;

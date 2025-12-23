@@ -4,7 +4,7 @@ import type { BusinessUser } from "../../../../lib/serverAuth";
 import { loadEffectivePermissionsForUser } from "../../../../lib/serverPermissions";
 
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 interface SyncBody {
   authUserId?: string;

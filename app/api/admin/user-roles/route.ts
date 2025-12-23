@@ -4,7 +4,7 @@ import { getBusinessUserFromRequest } from "../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../lib/serverPermissions";
 import { PERMISSIONS, type PermissionKey } from "../../../../lib/permissions";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 type RoleRow = {
   id: number;

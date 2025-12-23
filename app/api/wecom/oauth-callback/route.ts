@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest, ensureActiveUser } from "../../../../lib/serverAuth";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 async function fetchAccessToken(corpId: string, corpSecret: string) {
   const tokenUrl = new URL("https://qyapi.weixin.qq.com/cgi-bin/gettoken");

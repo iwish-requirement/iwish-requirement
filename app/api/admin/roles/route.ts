@@ -5,7 +5,7 @@ import { ensureHasAnyPermission, ensureHasPermission } from "../../../../lib/ser
 
 import { PERMISSIONS, type PermissionKey } from "../../../../lib/permissions";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 type RoleRow = {
   id: number;

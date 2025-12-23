@@ -5,7 +5,7 @@ import { ensureHasAnyPermission, ensureHasPermission } from "../../../../lib/ser
 
 
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 type AppSettingsRow = {
   id: number;

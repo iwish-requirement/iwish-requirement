@@ -5,7 +5,7 @@ import { loadEffectivePermissionsForUser } from "../../../lib/serverPermissions"
 
 
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 const DEPT_KEY_TO_SLUG: Record<string, string> = {
   d1: "tech",

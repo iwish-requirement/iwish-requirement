@@ -4,7 +4,7 @@ import { getBusinessUserFromRequest } from "../../../lib/serverAuth";
 import { ensureHasAnyPermission, ensureHasPermission } from "../../../lib/serverPermissions";
 
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 export async function GET(req: NextRequest) {
   try {

@@ -4,7 +4,7 @@ import { getBusinessUserFromRequest } from "../../../../lib/serverAuth";
 import { ensureHasAnyPermission, ensureHasPermission } from "../../../../lib/serverPermissions";
 import { dispatchSingleEvent } from "../../../../lib/webhooks";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 export async function GET(req: NextRequest) {
   const authResult = await getBusinessUserFromRequest(req);

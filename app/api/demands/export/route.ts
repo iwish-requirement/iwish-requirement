@@ -3,7 +3,7 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest, ensureActiveUser } from "../../../../lib/serverAuth";
 import { DemandStatus, Demand, Priority } from "../../../../types";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 function mapStatus(status: string | null): DemandStatus {
   const value = (status ?? "").toString();

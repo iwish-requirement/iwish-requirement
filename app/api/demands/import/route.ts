@@ -3,7 +3,7 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest, ensureActiveUser } from "../../../../lib/serverAuth";
 import { DemandStatus, Priority } from "../../../../types";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 function normalizePriority(raw: any): Priority {
   const value = (raw ?? "").toString();
