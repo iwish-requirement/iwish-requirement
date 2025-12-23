@@ -1,0 +1,5 @@
+# Cloudflare Workers/Pages configuration
+# 固化 Node.js 兼容配置，供 next-on-pages 生成的 Worker 使用
+
+compatibility_date = "2025-12-23"
+compatibility_flags = ["nodejs_compat"]
