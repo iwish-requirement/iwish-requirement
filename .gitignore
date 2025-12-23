@@ -41,6 +41,9 @@ out/
 .env.test.local
 .env.production.local
 
+# Project local data (do not sync to GitHub)
+.codebuddy/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
