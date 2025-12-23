@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Calendar, User, MessageSquare, Paperclip, Clock, CheckCircle2, Edit3, ArrowRight, Grid } from 'lucide-react';
 import { getSupabaseClient } from '../../../../lib/supabase';
 import { authorizedFetch } from '../../../../lib/authFetch';
-import { hasPermission } from '../../../../lib/permissions';
+import { hasPermission, type PermissionKey } from '../../../../lib/permissions';
 import { Department, FieldDefinition, Demand, Priority, DemandStatus } from '../../../../types';
 import Badge from '../../../../components/ui/Badge';
 import Modal from '../../../../components/ui/Modal';
