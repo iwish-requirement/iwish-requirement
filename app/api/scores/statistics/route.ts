@@ -51,14 +51,13 @@ export async function GET(req: NextRequest) {
 
     let query = supabaseAdmin
       .from("score_records")
-      .select("target_user_id, department_id, period, scores")
-      .returns<ScoreRecordRow[]>();
+      .select("target_user_id, department_id, period, scores");
 
     if (periodParam && periodParam.trim()) {
       query = query.eq("period", periodParam.trim());
     }
 
-    const { data: records, error } = await query;
+    const { data: records, error } = await query.returns<ScoreRecordRow[]>();
 
     if (error) {
       console.error("[api/scores/statistics] load records error", error);

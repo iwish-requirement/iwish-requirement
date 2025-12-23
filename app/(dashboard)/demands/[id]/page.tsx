@@ -322,11 +322,9 @@ export default function DemandDetailPage() {
         if (data) {
           setMentionUsers(data as MentionUser[]);
         }
-      })
-      .catch((e) => {
-        console.error('load mention users error', e);
       });
   }, []);
+
 
   useEffect(() => {
     if (!id) {

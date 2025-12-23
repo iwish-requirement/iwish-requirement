@@ -40,15 +40,15 @@ export async function GET(req: NextRequest) {
     let query = supabaseAdmin
       .from("score_periods")
       .select("id, period, score_window_start, score_window_end, status, created_at, updated_at")
-      .order("period", { ascending: false })
-      .returns<ScorePeriodRow[]>();
+      .order("period", { ascending: false });
 
     if (yearParam && yearParam.trim()) {
       const year = yearParam.trim();
-      query = query.like("period", `${year}-%`);
+      query = (query as any).like("period", `${year}-%`);
     }
 
     const { data, error } = await query;
+
 
     if (error) {
       console.error("[api/admin/score-periods] load error", error);

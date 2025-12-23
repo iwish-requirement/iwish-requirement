@@ -1,5 +1,7 @@
-import { DEPARTMENTS, INITIAL_FIELD_TEMPLATES } from '../constants';
-import { Department, FieldDefinition } from '../types';
+import type { Department, FieldDefinition } from '../types';
+
+const DEFAULT_DEPARTMENTS: Department[] = [];
+const DEFAULT_FIELD_TEMPLATES: Record<string, FieldDefinition[]> = {};
 
 const KEYS = {
   DEPTS: 'nexus_departments',
@@ -8,7 +10,7 @@ const KEYS = {
 
 export const getDepartments = (): Department[] => {
   const stored = localStorage.getItem(KEYS.DEPTS);
-  return stored ? JSON.parse(stored) : DEPARTMENTS;
+  return stored ? (JSON.parse(stored) as Department[]) : DEFAULT_DEPARTMENTS;
 };
 
 export const saveDepartments = (depts: Department[]) => {
@@ -18,7 +20,9 @@ export const saveDepartments = (depts: Department[]) => {
 
 export const getFieldTemplates = (): Record<string, FieldDefinition[]> => {
   const stored = localStorage.getItem(KEYS.TEMPLATES);
-  return stored ? JSON.parse(stored) : INITIAL_FIELD_TEMPLATES;
+  return stored
+    ? (JSON.parse(stored) as Record<string, FieldDefinition[]>)
+    : DEFAULT_FIELD_TEMPLATES;
 };
 
 export const saveFieldTemplates = (templates: Record<string, FieldDefinition[]>) => {

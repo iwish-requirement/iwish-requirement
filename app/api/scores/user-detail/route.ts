@@ -71,14 +71,13 @@ export async function GET(req: NextRequest) {
       .from("score_records")
       .select("id, task_id, scorer_id, target_user_id, department_id, period, scores, comment, created_at")
       .eq("target_user_id", targetUserId)
-      .order("created_at", { ascending: false })
-      .returns<RawScoreRecordRow[]>();
+      .order("created_at", { ascending: false });
 
     if (periodParam && periodParam.trim()) {
       query = query.eq("period", periodParam.trim());
     }
 
-    const { data: rows, error } = await query;
+    const { data: rows, error } = await query.returns<RawScoreRecordRow[]>();
 
     if (error) {
       console.error("[api/scores/user-detail] load records error", error);

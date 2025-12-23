@@ -217,10 +217,11 @@ export async function GET(req: NextRequest) {
       customFieldFilters.push({ key: fieldKey, value });
     }
 
-    let query = supabaseAdmin
+    let query: any = supabaseAdmin
       .from("demands")
       .select("id, department_id, fields, status, created_at", { count: "exact" })
       .eq("department_id", departmentId);
+
 
     if (statusParam) {
       const normalized = (statusParam || "").toString().toLowerCase();
@@ -256,12 +257,14 @@ export async function GET(req: NextRequest) {
 
     if (customFieldFilters.length > 0) {
       for (const filter of customFieldFilters) {
-        query = query.eq(`fields->>${filter.key}` as any, filter.value);
+        query = query.eq(`fields->>${filter.key}`, filter.value);
       }
     }
 
+
     const MAX_ROWS = 5000;
-    const { data, error, count } = await query.limit(MAX_ROWS);
+    const { data, error, count } = await (query as any).limit(MAX_ROWS);
+
 
     if (error) {
       console.error("[api/demands/stats/dynamic] query error", error);

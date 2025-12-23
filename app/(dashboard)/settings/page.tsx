@@ -25,7 +25,15 @@ import WebhookSettings from "./WebhookSettings";
 
 // -------------------- 类型与 Tab 定义 --------------------
 
-type AdminTab = "global" | "departments" | "users" | "roles" | "fields" | "scoring" | "scorePeriods";
+type AdminTab =
+  | "global"
+  | "departments"
+  | "users"
+  | "roles"
+  | "fields"
+  | "scoring"
+  | "scorePeriods"
+  | "webhooks";
 
 // -------------------- 顶层设置页面 --------------------
 
@@ -2146,7 +2154,12 @@ const ScoringTemplates = ({ canManage }: { canManage: boolean }) => {
           options: options && options.length > 0 ? options : undefined,
         };
       })
-      .filter((it): it is { label: string; max: number; required: boolean; options?: ScoringScaleOption[] } => Boolean(it && it.label));
+      .filter((it) => Boolean(it && it.label)) as {
+        label: string;
+        max: number;
+        required: boolean;
+        options?: ScoringScaleOption[];
+      }[];
 
     if (!cleanedItems.length) {
       setError("请至少配置一个评分项");

@@ -14,7 +14,7 @@ interface SyncBody {
   departmentId?: number | string | null;
 }
 
-function normalizeRole(raw: string | null | undefined): string {
+function normalizeRole(raw: string | null | undefined): BusinessUser["role"] {
   const value = (raw || "").toString().toLowerCase();
   if (value === "admin") return "admin";
   if (value === "manager" || value === "dept-admin") return "manager";
@@ -22,12 +22,13 @@ function normalizeRole(raw: string | null | undefined): string {
   return "user";
 }
 
-function normalizeStatus(raw: string | null | undefined): string {
+function normalizeStatus(raw: string | null | undefined): BusinessUser["status"] {
   const value = (raw || "").toString().toLowerCase();
   if (value === "active") return "active";
   if (value === "disabled") return "disabled";
   return "pending";
 }
+
 
 export async function POST(req: NextRequest) {
   try {
