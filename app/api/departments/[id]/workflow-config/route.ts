@@ -24,17 +24,14 @@ export async function GET(
     return activeError;
   }
 
-  const permError = await ensureHasAnyPermission(authResult.user, [
-    "settings.workflow.view",
-    "settings.workflow.manage",
-    "settings.departments.manage",
-    "settings.global.manage",
-  ]);
-  if (permError) {
-    return permError;
-  }
+  // 说明：工作流配置不仅用于「系统设置 - 工作流配置」页面，
+  // 还会在需求详情页等业务页面用于展示状态映射与状态流转。
+  // 因此这里不再强制要求 settings.workflow.* 或 settings.* 权限，
+  // 只要是已登录且处于有效状态的业务用户就可以读取部门的配置，
+  // 以保证普通业务账号也能看到正确的优先级/状态映射与流转信息。
 
   const departmentId = parseInt(params.id, 10);
+
 
   if (Number.isNaN(departmentId) || departmentId <= 0) {
     return NextResponse.json({ error: "invalid department id" }, { status: 400 });
