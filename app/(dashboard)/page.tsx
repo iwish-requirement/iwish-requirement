@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FileText, CheckCircle, Clock, TrendingUp, ArrowRight, AlertCircle, Plus } from 'lucide-react';
-import { DemandStatus, Priority } from '../../types';
+import { DemandStatus, Priority, type DepartmentWorkflowConfig } from '../../types';
 import { getSupabaseClient } from '../../lib/supabase';
 import { hasPermission } from '../../lib/permissions';
 import { authorizedFetch } from '../../lib/authFetch';
@@ -171,6 +171,33 @@ function formatScoreWindowRange(start: string | null | undefined, end: string | 
   return `${format(startDate)} ~ ${format(endDate)}`;
 }
 
+const normalizeDemandStatus = (status: string): DemandStatus => {
+  const value = (status || '').toString();
+  switch (value) {
+    case 'pending':
+      return DemandStatus.PENDING;
+    case 'in_progress':
+      return DemandStatus.IN_PROGRESS;
+    case 'review':
+      return DemandStatus.REVIEW;
+    case 'done':
+      return DemandStatus.DONE;
+    case 'closed':
+      return DemandStatus.CLOSED;
+    case 'delayed':
+      return DemandStatus.DELAYED;
+    case 'ignored':
+      return DemandStatus.IGNORED;
+    default: {
+      const all = Object.values(DemandStatus) as string[];
+      if (all.includes(value)) {
+        return value as DemandStatus;
+      }
+      return DemandStatus.PENDING;
+    }
+  }
+};
+
 export default function Dashboard() {
   const router = useRouter();
 
@@ -181,6 +208,7 @@ export default function Dashboard() {
   const [inProgressCount, setInProgressCount] = useState<number | null>(null);
   const [doneCount, setDoneCount] = useState<number | null>(null);
   const [recentDemands, setRecentDemands] = useState<any[]>([]);
+  const [workflowConfigsByDept, setWorkflowConfigsByDept] = useState<Record<string, DepartmentWorkflowConfig>>({});
   const [demandsLoading, setDemandsLoading] = useState(false);
   const [demandsError, setDemandsError] = useState<string | null>(null);
 
@@ -332,6 +360,57 @@ export default function Dashboard() {
             const json = await listRes.json();
             const items = Array.isArray(json.items) ? json.items : [];
             setRecentDemands(items);
+
+            const deptIds = Array.from(
+              new Set(
+                items
+                  .map((item: any) => item.departmentId)
+                  .filter((id: any) => id !== null && id !== undefined && id !== '')
+              )
+            ).map((id) => String(id));
+
+            const missingIds = deptIds.filter((id) => !workflowConfigsByDept[id]);
+            if (missingIds.length > 0) {
+              Promise.all(
+                missingIds.map(async (deptId) => {
+                  try {
+                    const cfgRes = await authorizedFetch(
+                      `/api/departments/${encodeURIComponent(deptId)}/workflow-config`
+                    );
+                    if (!cfgRes.ok) {
+                      console.error(
+                        'dashboard load workflow config for recent demands error',
+                        await cfgRes.text()
+                      );
+                      return null;
+                    }
+                    const cfgJson = await cfgRes.json();
+                    const cfg = (cfgJson.config || null) as DepartmentWorkflowConfig | null;
+                    if (!cfg || !Array.isArray(cfg.statuses) || !Array.isArray(cfg.priorities)) {
+                      return null;
+                    }
+                    const sorted: DepartmentWorkflowConfig = {
+                      priorities: [...cfg.priorities].sort((a, b) => a.order - b.order),
+                      statuses: [...cfg.statuses].sort((a, b) => a.order - b.order),
+                    };
+                    return { deptId, config: sorted };
+                  } catch (error) {
+                    console.error('dashboard load workflow config for recent demands error', error);
+                    return null;
+                  }
+                })
+              ).then((results) => {
+                const next: Record<string, DepartmentWorkflowConfig> = {};
+                results.forEach((item) => {
+                  if (item) {
+                    next[item.deptId] = item.config;
+                  }
+                });
+                if (Object.keys(next).length > 0) {
+                  setWorkflowConfigsByDept((prev) => ({ ...prev, ...next }));
+                }
+              });
+            }
           }
         }
       } catch (error) {
@@ -433,6 +512,46 @@ export default function Dashboard() {
       : scoreWindowPhase === 'closed'
       ? '评分窗口已结束'
       : null;
+
+  const renderRecentStatusBadge = (demand: any) => {
+    const statusValue = (demand?.status ?? '') as string;
+    const deptId = demand?.departmentId != null && demand?.departmentId !== '' ? String(demand.departmentId) : null;
+
+    if (deptId && workflowConfigsByDept[deptId]) {
+      const cfg = workflowConfigsByDept[deptId];
+      const found = cfg.statuses.find((s) => s.value === statusValue);
+      if (found) {
+        return (
+          <span
+            className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border"
+            style={{
+              color: found.color,
+              borderColor: found.color,
+              backgroundColor: `${found.color}1A`,
+            }}
+          >
+            {found.label}
+          </span>
+        );
+      }
+    }
+
+    const normalized = normalizeDemandStatus(statusValue);
+    let variant: any = 'default';
+    if (normalized === DemandStatus.DONE || normalized === DemandStatus.CLOSED) {
+      variant = 'success';
+    } else if (normalized === DemandStatus.IN_PROGRESS) {
+      variant = 'warning';
+    } else if (normalized === DemandStatus.PENDING || normalized === DemandStatus.REVIEW) {
+      variant = 'outline';
+    } else if (normalized === DemandStatus.DELAYED) {
+      variant = 'warning';
+    } else if (normalized === DemandStatus.IGNORED) {
+      variant = 'outline';
+    }
+
+    return <Badge variant={variant}>{normalized}</Badge>;
+  };
 
   return (
     <div className="space-y-6 md:space-y-8 pb-8">
@@ -563,17 +682,7 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div className="flex sm:flex-col items-start sm:items-end justify-between sm:justify-center gap-3 sm:gap-1 pl-16 sm:pl-0">
-                  <Badge
-                    variant={
-                      demand.status === DemandStatus.DONE
-                        ? 'success'
-                        : demand.status === DemandStatus.IN_PROGRESS
-                        ? 'warning'
-                        : 'default'
-                    }
-                  >
-                    {demand.status}
-                  </Badge>
+                  {renderRecentStatusBadge(demand)}
                 </div>
               </div>
             ))}

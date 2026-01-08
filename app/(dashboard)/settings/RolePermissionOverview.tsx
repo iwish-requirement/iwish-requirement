@@ -88,6 +88,11 @@ const PERMISSION_GROUPS: {
         ],
       },
       {
+        id: "settings-workflow",
+        label: "工作流配置",
+        keys: ["settings.workflow.view", "settings.workflow.manage"],
+      },
+      {
         id: "settings-scoring",
         label: "评分模板",
         keys: ["settings.scoring.view", "settings.scoring.manage"],
@@ -97,6 +102,7 @@ const PERMISSION_GROUPS: {
         label: "评分周期",
         keys: ["settings.score_periods.view", "settings.score_periods.manage"],
       },
+
       {
         id: "settings-roles",
         label: "角色与权限配置",

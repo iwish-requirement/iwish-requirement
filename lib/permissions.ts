@@ -23,6 +23,8 @@ export type PermissionKey =
   | "settings.scoring.manage"
   | "settings.score_periods.view"
   | "settings.score_periods.manage"
+  | "settings.workflow.view"
+  | "settings.workflow.manage"
   | "settings.roles.view"
   | "settings.roles.manage"
   | "settings.webhooks.view"
@@ -164,11 +166,24 @@ export const PERMISSIONS: Record<PermissionKey, PermissionMeta> = {
     description: "可以新增、编辑、删除评分周期及其评分窗口。",
   },
 
+  "settings.workflow.view": {
+    key: "settings.workflow.view",
+    label: "查看工作流配置",
+    description: "可以查看各部门的需求优先级与状态工作流配置。",
+  },
+
+  "settings.workflow.manage": {
+    key: "settings.workflow.manage",
+    label: "管理工作流配置",
+    description: "可以新增、编辑、保存各部门的需求优先级与状态工作流配置。",
+  },
+
   "settings.roles.view": {
     key: "settings.roles.view",
     label: "查看角色与权限配置",
     description: "可以查看角色列表及各角色勾选的权限点。",
   },
+
 
   "settings.roles.manage": {
     key: "settings.roles.manage",

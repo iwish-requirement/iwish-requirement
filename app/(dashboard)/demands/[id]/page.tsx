@@ -8,7 +8,7 @@ import { ArrowLeft, Calendar, User, MessageSquare, Paperclip, Clock, CheckCircle
 import { getSupabaseClient } from '../../../../lib/supabase';
 import { authorizedFetch } from '../../../../lib/authFetch';
 import { hasPermission, type PermissionKey } from '../../../../lib/permissions';
-import { Department, FieldDefinition, Demand, Priority, DemandStatus } from '../../../../types';
+import { Department, FieldDefinition, Demand, Priority, DemandStatus, type DepartmentWorkflowConfig } from '../../../../types';
 import Badge from '../../../../components/ui/Badge';
 import Modal from '../../../../components/ui/Modal';
 
@@ -62,9 +62,9 @@ export default function DemandDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
-  const [draftPriority, setDraftPriority] = useState<Priority | ''>('');
+  const [draftPriority, setDraftPriority] = useState<string>('');
   const [draftDueDate, setDraftDueDate] = useState('');
-  const [draftStatus, setDraftStatus] = useState<DemandStatus | ''>('');
+  const [draftStatus, setDraftStatus] = useState<string>('');
   const [draftCustomFields, setDraftCustomFields] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -115,6 +115,7 @@ export default function DemandDetailPage() {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [workflowConfig, setWorkflowConfig] = useState<DepartmentWorkflowConfig | null>(null);
 
   const mainCommentInputRef = useRef<HTMLDivElement | null>(null);
 
@@ -133,6 +134,31 @@ export default function DemandDetailPage() {
   ];
 
   const activeReplyInputRef = useRef<HTMLDivElement | null>(null);
+
+  // 计算允许的“向前推进”状态（只允许往后阶段，不允许倒退）
+  const getAllowedNextStatuses = React.useMemo(() => {
+    if (!demand || !workflowConfig || workflowConfig.statuses.length === 0) {
+      return null;
+    }
+
+    const currentStatusConfig = workflowConfig.statuses.find((s) => s.value === demand.status);
+    if (!currentStatusConfig) {
+      // 如果当前状态不在配置中，只允许切到配置里的其他状态
+      return workflowConfig.statuses.filter((s) => s.value !== demand.status);
+    }
+
+    const currentOrder = currentStatusConfig.order;
+
+    // 如果配置了 transitions，则：只允许 transitions 中，且 order 比当前大的状态
+    if (currentStatusConfig.transitions && currentStatusConfig.transitions.length > 0) {
+      return workflowConfig.statuses.filter(
+        (s) => currentStatusConfig.transitions!.includes(s.value) && s.order > currentOrder
+      );
+    }
+
+    // 如果没有配置 transitions，则：只允许所有 order 在当前之后的状态
+    return workflowConfig.statuses.filter((s) => s.order > currentOrder);
+  }, [demand, workflowConfig]);
 
   const handleDeleteDemand = async () => {
     if (deleteSubmitting) {
@@ -227,29 +253,59 @@ export default function DemandDetailPage() {
 
       setDraftTitle(demand.title);
       setDraftDescription(demand.description);
-      setDraftPriority(demand.priority || Priority.MEDIUM);
+      setDraftPriority(demand.priority || '');
       setDraftDueDate(demand.dueDate || '');
-      setDraftStatus(demand.status || DemandStatus.PENDING);
+      setDraftStatus(demand.status || '');
       setDraftCustomFields(demand.customFields || {});
 
       if (!demand.departmentId) {
         setTemplateFields([]);
+        setWorkflowConfig(null);
         return;
       }
 
       try {
-        const res = await authorizedFetch(`/api/department-fields?departmentId=${encodeURIComponent(demand.departmentId)}`);
-        if (!res.ok) {
-          console.error('load department fields in detail error', await res.text());
+        const [fieldsRes, workflowRes] = await Promise.all([
+          authorizedFetch(`/api/department-fields?departmentId=${encodeURIComponent(demand.departmentId)}`),
+          authorizedFetch(`/api/departments/${encodeURIComponent(demand.departmentId)}/workflow-config`),
+        ]);
+
+        if (fieldsRes.ok) {
+          const json = await fieldsRes.json();
+          const items = (json.items || []) as FieldDefinition[];
+          setTemplateFields(items);
+        } else {
+          console.error('load department fields in detail error', await fieldsRes.text());
           setTemplateFields([]);
-          return;
         }
-        const json = await res.json();
-        const items = (json.items || []) as FieldDefinition[];
-        setTemplateFields(items);
+
+        if (workflowRes.ok) {
+          const workflowJson = await workflowRes.json();
+          const cfg = (workflowJson.config || null) as DepartmentWorkflowConfig | null;
+          if (cfg && Array.isArray(cfg.priorities) && Array.isArray(cfg.statuses)) {
+            const sorted: DepartmentWorkflowConfig = {
+              priorities: [...cfg.priorities].sort((a, b) => a.order - b.order),
+              statuses: [...cfg.statuses].sort((a, b) => a.order - b.order),
+            };
+            setWorkflowConfig(sorted);
+
+            if (!demand.priority && sorted.priorities.length > 0) {
+              setDraftPriority(sorted.priorities[0].value);
+            }
+            if (!demand.status && sorted.statuses.length > 0) {
+              setDraftStatus(sorted.statuses[0].value);
+            }
+          } else {
+            setWorkflowConfig(null);
+          }
+        } else {
+          console.error('load workflow config in detail error', await workflowRes.text());
+          setWorkflowConfig(null);
+        }
       } catch (e) {
-        console.error('load department fields in detail error', e);
+        console.error('load department fields/workflow in detail error', e);
         setTemplateFields([]);
+        setWorkflowConfig(null);
       }
     };
 
@@ -411,10 +467,15 @@ export default function DemandDetailPage() {
       ? DemandStatus.IN_PROGRESS
       : demand?.status === DemandStatus.IGNORED
       ? DemandStatus.DONE
-      : demand?.status ?? null;
+      : (demand?.status as DemandStatus) ?? null;
 
   const currentStatusIndex =
-    normalizedStatusForFlow != null ? statusFlowOrder.indexOf(normalizedStatusForFlow) : -1;
+    workflowConfig && workflowConfig.statuses.length > 0 && demand
+      ? workflowConfig.statuses.findIndex((s) => s.value === demand.status)
+      : normalizedStatusForFlow != null
+      ? statusFlowOrder.indexOf(normalizedStatusForFlow)
+      : -1;
+
 
   const handleStartEdit = () => {
     setIsEditing(true);
@@ -425,9 +486,9 @@ export default function DemandDetailPage() {
     if (demand) {
       setDraftTitle(demand.title);
       setDraftDescription(demand.description);
-      setDraftPriority(demand.priority || Priority.MEDIUM);
+      setDraftPriority(demand.priority || '');
       setDraftDueDate(demand.dueDate || '');
-      setDraftStatus(demand.status || DemandStatus.PENDING);
+      setDraftStatus(demand.status || '');
       setDraftCustomFields(demand.customFields || {});
     }
     setIsEditing(false);
@@ -474,9 +535,9 @@ export default function DemandDetailPage() {
     }
   };
 
-  const handleQuickStatusChange = async (nextStatus: DemandStatus) => {
+  const handleQuickStatusChange = async (nextStatus: string) => {
     if (!demand) return;
-    if (nextStatus === demand.status) return;
+    if (!nextStatus || nextStatus === '' || nextStatus === demand.status) return;
 
     setStatusUpdating(true);
     setStatusUpdateError(null);
@@ -2241,52 +2302,230 @@ export default function DemandDetailPage() {
                  {isEditing ? (
                    <select
                      value={draftPriority || demand.priority}
-                     onChange={(e) => setDraftPriority(e.target.value as Priority)}
+                     onChange={(e) => setDraftPriority(e.target.value)}
                      className="px-2 py-1 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                    >
-                     <option value={Priority.MEDIUM}>{Priority.MEDIUM}</option>
-                     <option value={Priority.LOW}>{Priority.LOW}</option>
-                     <option value={Priority.HIGH}>{Priority.HIGH}</option>
-                     <option value={Priority.CRITICAL}>{Priority.CRITICAL}</option>
+                     {workflowConfig && workflowConfig.priorities.length > 0 ? (
+                       <>
+                         {workflowConfig.priorities.map((p) => (
+                           <option key={p.value} value={p.value}>
+                             {p.label}
+                           </option>
+                         ))}
+                       </>
+                     ) : (
+                       <>
+                         <option value={Priority.MEDIUM}>{Priority.MEDIUM}</option>
+                         <option value={Priority.LOW}>{Priority.LOW}</option>
+                         <option value={Priority.HIGH}>{Priority.HIGH}</option>
+                         <option value={Priority.CRITICAL}>{Priority.CRITICAL}</option>
+                       </>
+                     )}
                    </select>
                  ) : (
-                   <span className="font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">{demand.priority}</span>
+                   <span className="font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">
+                     {(() => {
+                       if (workflowConfig && workflowConfig.priorities.length > 0) {
+                         const found = workflowConfig.priorities.find((p) => p.value === demand.priority);
+                         if (found) return found.label;
+                       }
+
+                       // 兜底：兼容英文优先级值，转成中文
+                       const raw = (demand.priority || "").toString().toLowerCase();
+                       if (raw.includes("critical") || raw === "p0") return Priority.CRITICAL;
+                       if (raw.includes("high") || raw === "p1") return Priority.HIGH;
+                       if (raw.includes("medium") || raw === "p2") return Priority.MEDIUM;
+                       if (raw.includes("low") || raw === "p3") return Priority.LOW;
+
+                       return demand.priority;
+                     })()}
+                   </span>
                  )}
+
                </div>
                <div className="flex items-center justify-between">
                  <span className="text-slate-500">当前状态</span>
                  {isEditing ? (
                    <select
                      value={draftStatus || demand.status}
-                     onChange={(e) => setDraftStatus(e.target.value as DemandStatus)}
+                     onChange={(e) => setDraftStatus(e.target.value)}
                      className="px-2 py-1 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                    >
-                     {quickStatusOptions.map((status) => (
-                       <option key={status} value={status}>
-                         {status}
-                       </option>
-                     ))}
-                   </select>
-                 ) : (
-                   <div className="flex items-center gap-2">
-                     <Badge variant="warning">{demand.status}</Badge>
-                     <select
-                       value={demand.status}
-                       onChange={(e) => handleQuickStatusChange(e.target.value as DemandStatus)}
-                       disabled={statusUpdating}
-                       className="px-2 py-1 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-                     >
-                       {quickStatusOptions.map((status) => (
-                         <option key={status} value={status}>
-                           {status}
-                         </option>
-                       ))}
-                     </select>
-                     {statusUpdating && (
-                       <span className="text-[11px] text-slate-400">更新中...</span>
+                     {workflowConfig && workflowConfig.statuses.length > 0 ? (
+                       <>
+                         {workflowConfig.statuses.map((s) => (
+                           <option key={s.value} value={s.value}>
+                             {s.label}
+                           </option>
+                         ))}
+                       </>
+                     ) : (
+                       <>
+                         {quickStatusOptions.map((status) => (
+                           <option key={status} value={status}>
+                             {status}
+                           </option>
+                         ))}
+                       </>
                      )}
-                   </div>
-                 )}
+                   </select>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Badge variant="warning">
+                      {(() => {
+                        if (workflowConfig && workflowConfig.statuses.length > 0) {
+                          const found = workflowConfig.statuses.find((s) => s.value === demand.status);
+                          if (found) return found.label;
+                        }
+
+                        // 兜底：兼容英文状态值，转成中文默认状态
+                        const raw = (demand.status || "").toString();
+                        switch (raw) {
+                          case "pending":
+                            return DemandStatus.PENDING;
+                          case "in_progress":
+                            return DemandStatus.IN_PROGRESS;
+                          case "review":
+                            return DemandStatus.REVIEW;
+                          case "done":
+                            return DemandStatus.DONE;
+                          case "closed":
+                            return DemandStatus.CLOSED;
+                          case "delayed":
+                            return DemandStatus.DELAYED;
+                          case "ignored":
+                            return DemandStatus.IGNORED;
+                          default: {
+                            const all = Object.values(DemandStatus) as string[];
+                            if (all.includes(raw)) {
+                              return raw;
+                            }
+                            return DemandStatus.PENDING;
+                          }
+                        }
+                      })()}
+                    </Badge>
+
+                   <select
+                     value={demand.status}
+                     onChange={(e) => handleQuickStatusChange(e.target.value)}
+                     disabled={statusUpdating}
+                     className="px-2 py-1 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                   >
+                     {(() => {
+                       const currentLabel = (() => {
+                         if (workflowConfig && workflowConfig.statuses.length > 0) {
+                           const found = workflowConfig.statuses.find((s) => s.value === demand.status);
+                           if (found) return found.label;
+                         }
+
+                         const raw = (demand.status || "").toString();
+                         switch (raw) {
+                           case "pending":
+                             return DemandStatus.PENDING;
+                           case "in_progress":
+                             return DemandStatus.IN_PROGRESS;
+                           case "review":
+                             return DemandStatus.REVIEW;
+                           case "done":
+                             return DemandStatus.DONE;
+                           case "closed":
+                             return DemandStatus.CLOSED;
+                           case "delayed":
+                             return DemandStatus.DELAYED;
+                           case "ignored":
+                             return DemandStatus.IGNORED;
+                           default: {
+                             const all = Object.values(DemandStatus) as string[];
+                             if (all.includes(raw)) {
+                               return raw;
+                             }
+                             return DemandStatus.PENDING;
+                           }
+                         }
+                       })();
+
+
+                       // 情况 1：配置里有明确的“向前可流转状态”
+                       if (getAllowedNextStatuses !== null && getAllowedNextStatuses.length > 0) {
+                         return (
+                           <>
+                             <option value={demand.status}>{currentLabel}</option>
+                             {getAllowedNextStatuses.map((s) => (
+                               <option key={s.value} value={s.value}>
+                                 {s.label}
+                               </option>
+                             ))}
+                           </>
+                         );
+                       }
+
+                       // 情况 2：配置里没有 transitions 或算出来为空，按照整体顺序只展示“当前之后”的状态
+                       if (workflowConfig && workflowConfig.statuses.length > 0) {
+                         const forwardOptions = workflowConfig.statuses
+                           .map((s, index) => ({
+                             value: s.value,
+                             label: s.label,
+                             index,
+                           }))
+                           .filter((opt) => currentStatusIndex >= 0 ? opt.index > currentStatusIndex : opt.value !== demand.status);
+
+                         return (
+                           <>
+                             <option value={demand.status}>{currentLabel}</option>
+                             {forwardOptions.map((opt) => (
+                               <option key={opt.value} value={opt.value}>
+                                 {opt.label}
+                               </option>
+                             ))}
+                           </>
+                         );
+                       }
+
+                       // 情况 3：没有部门配置，使用默认流程，只允许“往后阶段”的状态 + 特殊状态
+                       const buildDefaultForwardOptions = () => {
+                         if (!demand) {
+                           return quickStatusOptions.map((status) => ({ value: status, label: status }));
+                         }
+
+                         if (normalizedStatusForFlow == null) {
+                           return quickStatusOptions
+                             .filter((status) => status !== demand.status)
+                             .map((status) => ({ value: status, label: status }));
+                         }
+
+                         const idx = statusFlowOrder.indexOf(normalizedStatusForFlow);
+                         const forwardMain = idx >= 0 ? statusFlowOrder.slice(idx + 1) : statusFlowOrder;
+                         const specialStatuses: DemandStatus[] = [
+                           DemandStatus.DELAYED,
+                           DemandStatus.IGNORED,
+                         ].filter((s) => s !== demand.status && !forwardMain.includes(s));
+
+                         const all = [...forwardMain, ...specialStatuses];
+                         const unique = Array.from(new Set(all));
+
+                         return unique.map((status) => ({ value: status, label: status }));
+                       };
+
+                       const defaultOptions = buildDefaultForwardOptions();
+
+                       return (
+                         <>
+                           <option value={demand.status}>{currentLabel}</option>
+                           {defaultOptions.map((opt) => (
+                             <option key={opt.value} value={opt.value}>
+                               {opt.label}
+                             </option>
+                           ))}
+                         </>
+                       );
+                     })()}
+                   </select>
+                    {statusUpdating && (
+                      <span className="text-[11px] text-slate-400">更新中...</span>
+                    )}
+                  </div>
+                )}
                </div>
              </div>
           </div>
@@ -2294,59 +2533,71 @@ export default function DemandDetailPage() {
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
              <h3 className="text-base font-bold text-slate-900 mb-4 uppercase tracking-wide text-opacity-80">状态流转</h3>
              <div className="mt-2 space-y-3">
-               <p className="text-xs text-slate-500">
-                 默认流程为：待处理 → 进行中 → 已完成，"已延期"和"不处理"为特殊状态。当前状态会高亮，便于快速判断进度。
-               </p>
-               <div className="flex flex-col gap-3">
-                 {statusFlowOrder.map((status, index) => {
-                   const isPastOrCurrent = currentStatusIndex >= 0 && index <= currentStatusIndex;
-                   const isCurrent = currentStatusIndex === index;
-                   const isFuture = currentStatusIndex >= 0 && index > currentStatusIndex;
+              <p className="text-xs text-slate-500">
+                {workflowConfig && workflowConfig.statuses.length > 0
+                  ? '以下为当前部门配置的标准状态流转顺序，当前所处阶段会高亮展示。'
+                  : '默认流程为：待处理 → 进行中 → 已完成，"已延期"和"不处理"为特殊状态。当前状态会高亮，便于快速判断进度。'}
+              </p>
+              <div className="flex flex-col gap-3">
+                {(
+                  workflowConfig && workflowConfig.statuses.length > 0
+                    ? workflowConfig.statuses.map((s) => s.value)
+                    : statusFlowOrder
+                ).map((statusValue, index) => {
+                  const isPastOrCurrent = currentStatusIndex >= 0 && index <= currentStatusIndex;
+                  const isCurrent = currentStatusIndex === index;
+                  const isFuture = currentStatusIndex >= 0 && index > currentStatusIndex;
 
-                   const circleStyle = isPastOrCurrent
-                     ? 'bg-blue-600 text-white border-blue-600'
-                     : 'bg-white text-slate-400 border-slate-300';
-                   const barStyle = isPastOrCurrent
-                     ? 'bg-blue-500'
-                     : 'bg-slate-200';
+                  const circleStyle = isPastOrCurrent
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-slate-400 border-slate-300';
+                  const barStyle = isPastOrCurrent ? 'bg-blue-500' : 'bg-slate-200';
 
-                   return (
-                     <div key={status} className="flex items-center gap-3">
-                       <div className="flex items-center gap-2">
-                         <div
-                           className={`w-7 h-7 rounded-full border flex items-center justify-center text-xs font-bold ${circleStyle}`}
-                         >
-                           {index + 1}
-                         </div>
-                         {index < statusFlowOrder.length - 1 && (
-                           <div className={`h-0.5 w-6 rounded ${barStyle}`} />
-                         )}
-                       </div>
-                       <div className="flex flex-col">
-                         <span
-                           className={`text-xs font-bold ${
-                             isCurrent
-                               ? 'text-blue-700'
-                               : isPastOrCurrent
-                               ? 'text-slate-800'
-                               : 'text-slate-500'
-                           }`}
-                         >
-                           {status}
-                           {isCurrent && (
-                             <span className="ml-1 text-[10px] text-blue-500">(当前)</span>
-                           )}
-                         </span>
-                         {isFuture && index === currentStatusIndex + 1 && (
-                           <span className="text-[10px] text-slate-400">
-                             建议下一步将状态推进到此阶段
-                           </span>
-                         )}
-                       </div>
-                     </div>
-                   );
-                 })}
-               </div>
+                  const label =
+                    workflowConfig && workflowConfig.statuses.length > 0
+                      ? workflowConfig.statuses.find((s) => s.value === statusValue)?.label || statusValue
+                      : statusValue;
+
+                  const isLast =
+                    workflowConfig && workflowConfig.statuses.length > 0
+                      ? index === workflowConfig.statuses.length - 1
+                      : index === statusFlowOrder.length - 1;
+
+                  return (
+                    <div key={statusValue} className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-7 h-7 rounded-full border flex items-center justify-center text-xs font-bold ${circleStyle}`}
+                        >
+                          {index + 1}
+                        </div>
+                        {!isLast && <div className={`h-0.5 w-6 rounded ${barStyle}`} />}
+                      </div>
+                      <div className="flex flex-col">
+                        <span
+                          className={`text-xs font-bold ${
+                            isCurrent
+                              ? 'text-blue-700'
+                              : isPastOrCurrent
+                              ? 'text-slate-800'
+                              : 'text-slate-500'
+                          }`}
+                        >
+                          {label}
+                          {isCurrent && (
+                            <span className="ml-1 text-[10px] text-blue-500">(当前)</span>
+                          )}
+                        </span>
+                        {isFuture && index === currentStatusIndex + 1 && (
+                          <span className="text-[10px] text-slate-400">
+                            建议下一步将状态推进到此阶段
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
                {demand && (demand.status === DemandStatus.DELAYED || demand.status === DemandStatus.IGNORED) && (
                  <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-700">
                    {demand.status === DemandStatus.DELAYED

@@ -54,21 +54,30 @@ function toDbStatus(status: DemandStatus | undefined | null): string | undefined
   }
 }
 
-function normalizePriority(raw: any): Priority {
-  const value = (raw ?? "").toString();
-  if (value.includes("紧急")) return Priority.CRITICAL;
-  if (value.includes("高")) return Priority.HIGH;
-  if (value.includes("中")) return Priority.MEDIUM;
-  if (value.includes("低")) return Priority.LOW;
-  return Priority.MEDIUM;
-}
-
 function mapRowToDemand(row: any): Demand {
   const fields = (row.fields || {}) as any;
 
   const code: string = fields.code || `REQ-${String(row.id ?? "").toString().padStart(4, "0")}`;
   const description: string = fields.description || "";
-  const priority: Priority = normalizePriority(fields.priority);
+  // Priority 从数据库字段读取，并做兼容处理
+  const priorityFromDb = (row.priority as string | null) || "";
+  const normalizedPriority = (() => {
+    const value = (priorityFromDb ?? "").toString();
+    if (value.includes("紧急")) return Priority.CRITICAL;
+    if (value.includes("高")) return Priority.HIGH;
+    if (value.includes("中")) return Priority.MEDIUM;
+    if (value.includes("低")) return Priority.LOW;
+
+    const lower = value.toLowerCase();
+    if (lower === "critical" || lower === "p0") return Priority.CRITICAL;
+    if (lower === "high" || lower === "p1") return Priority.HIGH;
+    if (lower === "medium" || lower === "p2") return Priority.MEDIUM;
+    if (lower === "low" || lower === "p3") return Priority.LOW;
+
+    return (value as Priority) || Priority.MEDIUM;
+  })();
+  const priority: Priority = normalizedPriority as Priority;
+
   const dueDate: string = fields.dueDate || "";
   const departmentId: string =
     row.department_id !== undefined && row.department_id !== null
@@ -83,6 +92,9 @@ function mapRowToDemand(row: any): Demand {
     ? new Date(row.created_at as string).toISOString().slice(0, 10)
     : "";
 
+  // Status 直接从数据库读取
+  const status = (row.status as string) || "pending";
+
   return {
     id: code,
     title: row.title as string,
@@ -90,7 +102,7 @@ function mapRowToDemand(row: any): Demand {
     departmentId,
     creatorId,
     assigneeId,
-    status: mapStatus(row.status as string | null),
+    status: status as DemandStatus,
     priority,
     createdAt,
     dueDate,
@@ -201,10 +213,10 @@ export async function PATCH(
     const body = await req.json();
     const title = (body.title as string | undefined)?.trim();
     const description = (body.description as string | undefined)?.trim();
-    const priority = body.priority as Priority | undefined;
+    const priority = body.priority as string | undefined;
     const dueDate = (body.dueDate as string | undefined) || undefined;
     const customFields = (body.customFields as Record<string, any> | undefined) || undefined;
-    const status = body.status as DemandStatus | undefined;
+    const status = body.status as string | undefined;
 
     if (!title && !description && !priority && !dueDate && !customFields && !status) {
       return NextResponse.json(
@@ -236,9 +248,6 @@ export async function PATCH(
     if (description !== undefined) {
       fields.description = description;
     }
-    if (priority) {
-      fields.priority = priority;
-    }
     if (dueDate !== undefined) {
       fields.dueDate = dueDate;
     }
@@ -252,13 +261,18 @@ export async function PATCH(
       updates.title = title;
     }
 
-    const dbStatus = toDbStatus(status);
-    if (dbStatus) {
-      updates.status = dbStatus;
+    // 优先级更新到数据库字段
+    if (priority) {
+      updates.priority = priority;
+    }
+
+    // 状态更新到数据库字段（不再映射）
+    if (status) {
+      updates.status = status;
     }
 
     // 如果状态更新为已完成且之前没有完成时间，则写入 finished_at，方便后续评分与统计
-    if (dbStatus === "done" && !existing.finished_at) {
+    if (status === "done" && !existing.finished_at) {
       updates.finished_at = new Date().toISOString();
     }
 

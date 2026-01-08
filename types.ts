@@ -1,3 +1,4 @@
+// Deprecated: Use department-specific config instead
 export enum DemandStatus {
   PENDING = '待处理',
   IN_PROGRESS = '进行中',
@@ -8,11 +9,33 @@ export enum DemandStatus {
   IGNORED = '不处理',
 }
 
+// Deprecated: Use department-specific config instead
 export enum Priority {
   LOW = '低',
   MEDIUM = '中',
   HIGH = '高',
   CRITICAL = '紧急'
+}
+
+// New: Department workflow configuration
+export interface PriorityConfig {
+  value: string;
+  label: string;
+  color: string;
+  order: number;
+}
+
+export interface StatusConfig {
+  value: string;
+  label: string;
+  color: string;
+  order: number;
+  transitions?: string[]; // Allowed next status values
+}
+
+export interface DepartmentWorkflowConfig {
+  priorities: PriorityConfig[];
+  statuses: StatusConfig[];
 }
 
 export interface Department {
@@ -69,6 +92,37 @@ export interface ScoreTask {
   department: string;
   status: 'Pending' | 'Completed';
   period: string;
+}
+
+// Score Period (评分周期配置)
+export interface ScorePeriod {
+  id: number;
+  period: string; // Format: YYYY-MM (服务月)
+  scoreWindowStart: string | null; // ISO timestamp
+  scoreWindowEnd: string | null; // ISO timestamp
+  status: 'planned' | 'open' | 'closed';
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// Score Period Stage (评分阶段 - 基于当前时间判断)
+export type ScorePeriodStage = 'not_started' | 'scoring' | 'grace' | 'closed';
+
+// Score Template Item
+export interface ScoreTemplateItem {
+  label: string;
+  max: number;
+  required: boolean;
+}
+
+// Score Template
+export interface ScoreTemplate {
+  id: number;
+  departmentId: number;
+  name: string;
+  items: ScoreTemplateItem[];
+  isActive: boolean;
+  createdAt: string;
 }
 
 export type FieldType =

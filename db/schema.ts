@@ -6,6 +6,8 @@ export const departments = pgTable("departments", {
   name: varchar("name", { length: 255 }).notNull(),
   slug: varchar("slug", { length: 255 }),
   config: jsonb("config"),
+  priorityConfig: jsonb("priority_config").default('[]'),
+  statusConfig: jsonb("status_config").default('[]'),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -75,7 +77,8 @@ export const demands = pgTable("demands", {
   creatorId: integer("creator_id").notNull(),
   assigneeId: integer("assignee_id"),
   title: varchar("title", { length: 255 }).notNull(),
-  status: varchar("status", { length: 50 }).notNull(),
+  status: text("status").notNull(),
+  priority: text("priority"),
   fieldTemplateId: integer("field_template_id"),
   fields: jsonb("fields"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -95,7 +98,7 @@ export const scoreTemplates = pgTable("score_templates", {
 // Score Periods (评分周期配置：服务月 + 评分窗口)
 export const scorePeriods = pgTable("score_periods", {
   id: serial("id").primaryKey(),
-  period: varchar("period", { length: 20 }).notNull(), // e.g. "2025-11"，表示服务月
+  period: varchar("period", { length: 20 }).notNull().unique(), // e.g. "2025-11"，表示服务月，唯一
   scoreWindowStart: timestamp("score_window_start"),
   scoreWindowEnd: timestamp("score_window_end"),
   status: varchar("status", { length: 20 }).notNull().default("planned"), // planned/open/closed

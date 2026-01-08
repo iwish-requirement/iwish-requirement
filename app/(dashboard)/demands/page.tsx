@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Download, Search, Sparkles, Calendar, User } from "lucide-react";
-import { DemandStatus, Priority, Department, Demand, FieldDefinition } from "../../../types";
+import { DemandStatus, Priority, Department, Demand, FieldDefinition, type DepartmentWorkflowConfig } from "../../../types";
 import { getSupabaseClient } from "../../../lib/supabase";
 import { authorizedFetch } from "../../../lib/authFetch";
 import Badge from "../../../components/ui/Badge";
@@ -13,7 +13,8 @@ export default function DemandsPage() {
   const router = useRouter();
 
   const [selectedDept, setSelectedDept] = useState("all");
-  const [selectedStatus, setSelectedStatus] = useState<"all" | DemandStatus>("all");
+  const [selectedStatus, setSelectedStatus] = useState<string>("all");
+  const [selectedPriority, setSelectedPriority] = useState<string>("all");
   const [onlyMyCreated, setOnlyMyCreated] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [createdFrom, setCreatedFrom] = useState("");
@@ -41,6 +42,8 @@ export default function DemandsPage() {
   const [dynamicFilterFields, setDynamicFilterFields] = useState<FieldDefinition[]>([]);
   const [dynamicFilters, setDynamicFilters] = useState<Record<string, string>>({});
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [workflowConfig, setWorkflowConfig] = useState<DepartmentWorkflowConfig | null>(null);
+  const [workflowConfigsByDept, setWorkflowConfigsByDept] = useState<Record<string, DepartmentWorkflowConfig>>({});
 
   const [deleteTargetDemand, setDeleteTargetDemand] = useState<Demand | null>(null);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
@@ -64,6 +67,8 @@ export default function DemandsPage() {
   const resetAllFilters = () => {
     setSelectedDept("all");
     setSelectedStatus("all");
+    setSelectedPriority("all");
+    setWorkflowConfig(null);
     setOnlyMyCreated(false);
     setSearchQuery("");
     setCreatedFrom("");
@@ -118,6 +123,46 @@ export default function DemandsPage() {
         console.error("load current user error", e);
       });
   }, []);
+
+  useEffect(() => {
+    if (selectedDept === "all") {
+      setWorkflowConfig(null);
+      return;
+    }
+
+    const loadWorkflowConfig = async () => {
+      try {
+        const res = await authorizedFetch(
+          `/api/departments/${encodeURIComponent(selectedDept)}/workflow-config`
+        );
+        if (!res.ok) {
+          console.error("load workflow config for demands list error", await res.text());
+          setWorkflowConfig(null);
+          return;
+        }
+        const json = await res.json();
+        const cfg = (json.config || null) as DepartmentWorkflowConfig | null;
+        if (!cfg || !Array.isArray(cfg.statuses) || !Array.isArray(cfg.priorities)) {
+          setWorkflowConfig(null);
+          return;
+        }
+        const sorted: DepartmentWorkflowConfig = {
+          priorities: [...cfg.priorities].sort((a, b) => a.order - b.order),
+          statuses: [...cfg.statuses].sort((a, b) => a.order - b.order),
+        };
+        setWorkflowConfig(sorted);
+        setWorkflowConfigsByDept((prev) => ({
+          ...prev,
+          [selectedDept]: sorted,
+        }));
+      } catch (e) {
+        console.error("load workflow config for demands list error", e);
+        setWorkflowConfig(null);
+      }
+    };
+
+    loadWorkflowConfig();
+  }, [selectedDept]);
 
   useEffect(() => {
     if (selectedDept === "all") {
@@ -186,6 +231,9 @@ export default function DemandsPage() {
         if (selectedStatus !== "all") {
           params.set("status", selectedStatus);
         }
+        if (selectedPriority !== "all") {
+          params.set("priority", selectedPriority);
+        }
         if (onlyMyCreated && currentUserCode) {
           params.set("creatorCode", currentUserCode);
         }
@@ -224,8 +272,65 @@ export default function DemandsPage() {
           return;
         }
         const json = await res.json();
-        setDemands(json.items || []);
+        const items = (json.items || []) as Demand[];
+        setDemands(items);
         setTotal(json.total ?? 0);
+
+        if (selectedDept === "all" && items.length > 0) {
+          const deptIds = Array.from(
+            new Set(
+              items
+                .map((item) => item.departmentId)
+                .filter((id): id is string => Boolean(id))
+            )
+          );
+
+          const missingIds = deptIds.filter((id) => !workflowConfigsByDept[id]);
+          if (missingIds.length > 0) {
+            Promise.all(
+              missingIds.map(async (deptId) => {
+                try {
+                  const cfgRes = await authorizedFetch(
+                    `/api/departments/${encodeURIComponent(deptId)}/workflow-config`
+                  );
+                  if (!cfgRes.ok) {
+                    console.error(
+                      "load workflow config for demands list (all departments) error",
+                      await cfgRes.text()
+                    );
+                    return null;
+                  }
+                  const cfgJson = await cfgRes.json();
+                  const cfg = (cfgJson.config || null) as DepartmentWorkflowConfig | null;
+                  if (!cfg || !Array.isArray(cfg.statuses) || !Array.isArray(cfg.priorities)) {
+                    return null;
+                  }
+                  const sorted: DepartmentWorkflowConfig = {
+                    priorities: [...cfg.priorities].sort((a, b) => a.order - b.order),
+                    statuses: [...cfg.statuses].sort((a, b) => a.order - b.order),
+                  };
+                  return { deptId, config: sorted };
+                } catch (e) {
+                  console.error(
+                    "load workflow config for demands list (all departments) error",
+                    e
+                  );
+                  return null;
+                }
+              })
+            ).then((results) => {
+              const next: Record<string, DepartmentWorkflowConfig> = {};
+              results.forEach((item) => {
+                if (item) {
+                  next[item.deptId] = item.config;
+                }
+              });
+              if (Object.keys(next).length > 0) {
+                setWorkflowConfigsByDept((prev) => ({ ...prev, ...next }));
+              }
+            });
+          }
+        }
       } catch (e: any) {
         if (e?.name === "AbortError") return;
         console.error("load demands error", e);
@@ -245,6 +350,7 @@ export default function DemandsPage() {
     searchQuery,
     selectedDept,
     selectedStatus,
+    selectedPriority,
     onlyMyCreated,
     currentUserCode,
     creatorUserId,
@@ -271,15 +377,175 @@ export default function DemandsPage() {
     }
   };
 
-  const getStatusBadge = (status: DemandStatus) => {
+  const getStatusBadge = (status: string) => {
+    const normalized: DemandStatus = (() => {
+      // 支持英文数据库值和中文旧值
+      switch (status) {
+        case "pending":
+          return DemandStatus.PENDING;
+        case "in_progress":
+          return DemandStatus.IN_PROGRESS;
+        case "review":
+          return DemandStatus.REVIEW;
+        case "done":
+          return DemandStatus.DONE;
+        case "closed":
+          return DemandStatus.CLOSED;
+        case "delayed":
+          return DemandStatus.DELAYED;
+        case "ignored":
+          return DemandStatus.IGNORED;
+        default: {
+          const all = Object.values(DemandStatus) as string[];
+          if (all.includes(status)) {
+            return status as DemandStatus;
+          }
+          return DemandStatus.PENDING;
+        }
+      }
+    })();
+
     let variant: any = "default";
-    if (status === DemandStatus.DONE) variant = "success";
-    if (status === DemandStatus.IN_PROGRESS) variant = "warning";
-    if (status === DemandStatus.PENDING) variant = "outline";
-    if (status === DemandStatus.DELAYED) variant = "warning";
-    if (status === DemandStatus.IGNORED) variant = "outline";
-    return <Badge variant={variant}>{status}</Badge>;
+    if (normalized === DemandStatus.DONE || normalized === DemandStatus.CLOSED) variant = "success";
+    if (normalized === DemandStatus.IN_PROGRESS) variant = "warning";
+    if (normalized === DemandStatus.PENDING || normalized === DemandStatus.REVIEW) variant = "outline";
+    if (normalized === DemandStatus.DELAYED) variant = "warning";
+    if (normalized === DemandStatus.IGNORED) variant = "outline";
+
+    return <Badge variant={variant}>{normalized}</Badge>;
   };
+
+  const renderStatusBadge = (status: string, departmentId?: string) => {
+    let cfg: DepartmentWorkflowConfig | null = null;
+
+    if (selectedDept !== "all") {
+      cfg = workflowConfig;
+    } else if (departmentId && workflowConfigsByDept[departmentId]) {
+      cfg = workflowConfigsByDept[departmentId];
+    }
+
+    if (cfg && cfg.statuses.length > 0) {
+      const found = cfg.statuses.find((s) => s.value === status);
+      if (found) {
+        return (
+          <span
+            className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border"
+            style={{
+              color: found.color,
+              borderColor: found.color,
+              backgroundColor: `${found.color}1A`,
+            }}
+          >
+            {found.label}
+          </span>
+        );
+      }
+    }
+    return getStatusBadge(status as DemandStatus);
+  };
+
+  const renderPriorityBadge = (priority: string, departmentId?: string) => {
+    let cfg: DepartmentWorkflowConfig | null = null;
+
+    if (selectedDept !== "all") {
+      cfg = workflowConfig;
+    } else if (departmentId && workflowConfigsByDept[departmentId]) {
+      cfg = workflowConfigsByDept[departmentId];
+    }
+
+    if (cfg && cfg.priorities.length > 0) {
+      const found = cfg.priorities.find((p) => p.value === priority);
+      if (found) {
+        return (
+          <span
+            className="inline-flex items-center px-2.5 py-1 rounded-md border text-xs font-bold"
+            style={{
+              color: found.color,
+              borderColor: found.color,
+              backgroundColor: `${found.color}1A`,
+            }}
+          >
+            {found.label}
+          </span>
+        );
+      }
+    }
+
+    return (
+      <span
+        className={`px-2.5 py-1 rounded-md border text-xs font-bold ${getPriorityColor(priority as Priority)}`}
+      >
+        {priority}
+      </span>
+    );
+  };
+
+  const allPriorityOptions = React.useMemo(
+    () => {
+      if (selectedDept !== "all") {
+        if (workflowConfig && workflowConfig.priorities.length > 0) {
+          return workflowConfig.priorities.map((p) => ({
+            value: p.value,
+            label: p.label,
+          }));
+        }
+      } else {
+        const collected: { value: string; label: string }[] = [];
+        Object.values(workflowConfigsByDept).forEach((cfg) => {
+          cfg.priorities.forEach((p) => {
+            if (!collected.find((item) => item.value === p.value)) {
+              collected.push({ value: p.value, label: p.label });
+            }
+          });
+        });
+        if (collected.length > 0) {
+          return collected;
+        }
+      }
+
+      return [
+        { value: Priority.CRITICAL, label: Priority.CRITICAL },
+        { value: Priority.HIGH, label: Priority.HIGH },
+        { value: Priority.MEDIUM, label: Priority.MEDIUM },
+        { value: Priority.LOW, label: Priority.LOW },
+      ];
+    },
+    [selectedDept, workflowConfig, workflowConfigsByDept]
+  );
+
+  const allStatusOptions = React.useMemo(
+    () => {
+      if (selectedDept !== "all") {
+        if (workflowConfig && workflowConfig.statuses.length > 0) {
+          return workflowConfig.statuses.map((s) => ({
+            value: s.value,
+            label: s.label,
+          }));
+        }
+      } else {
+        const collected: { value: string; label: string }[] = [];
+        Object.values(workflowConfigsByDept).forEach((cfg) => {
+          cfg.statuses.forEach((s) => {
+            if (!collected.find((item) => item.value === s.value)) {
+              collected.push({ value: s.value, label: s.label });
+            }
+          });
+        });
+        if (collected.length > 0) {
+          return collected;
+        }
+      }
+
+      return [
+        { value: DemandStatus.PENDING, label: DemandStatus.PENDING },
+        { value: DemandStatus.IN_PROGRESS, label: DemandStatus.IN_PROGRESS },
+        { value: DemandStatus.DONE, label: DemandStatus.DONE },
+        { value: DemandStatus.DELAYED, label: DemandStatus.DELAYED },
+        { value: DemandStatus.IGNORED, label: DemandStatus.IGNORED },
+      ];
+    },
+    [selectedDept, workflowConfig, workflowConfigsByDept]
+  );
 
   const maxPage = Math.max(1, Math.ceil(total / pageSize));
 
@@ -449,6 +715,9 @@ export default function DemandsPage() {
                 if (selectedStatus !== "all") {
                   params.set("status", selectedStatus);
                 }
+                if (selectedPriority !== "all") {
+                  params.set("priority", selectedPriority);
+                }
                 if (onlyMyCreated && currentUserCode) {
                   params.set("creatorCode", currentUserCode);
                 }
@@ -560,18 +829,33 @@ export default function DemandsPage() {
                 </select>
                 <select
                   className="w-full sm:flex-1 px-4 py-2.5 text-base border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={selectedPriority}
+                  onChange={(e) => {
+                    setSelectedPriority(e.target.value);
+                    setPage(1);
+                  }}
+                >
+                  <option value="all">所有优先级</option>
+                  {allPriorityOptions.map((p) => (
+                    <option key={p.value} value={p.value}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="w-full sm:flex-1 px-4 py-2.5 text-base border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   value={selectedStatus}
                   onChange={(e) => {
-                    setSelectedStatus(e.target.value as DemandStatus | "all");
+                    setSelectedStatus(e.target.value);
                     setPage(1);
                   }}
                 >
                   <option value="all">所有状态</option>
-                  <option value={DemandStatus.PENDING}>{DemandStatus.PENDING}</option>
-                  <option value={DemandStatus.IN_PROGRESS}>{DemandStatus.IN_PROGRESS}</option>
-                  <option value={DemandStatus.DONE}>{DemandStatus.DONE}</option>
-                  <option value={DemandStatus.DELAYED}>{DemandStatus.DELAYED}</option>
-                  <option value={DemandStatus.IGNORED}>{DemandStatus.IGNORED}</option>
+                  {allStatusOptions.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -878,15 +1162,9 @@ export default function DemandsPage() {
                       </div>
                     </td>
                     <td className="px-6 py-5 text-center whitespace-nowrap">
-                      <span
-                        className={`px-2.5 py-1 rounded-md border text-xs font-bold ${getPriorityColor(
-                          demand.priority,
-                        )}`}
-                      >
-                        {demand.priority}
-                      </span>
+                      {renderPriorityBadge(demand.priority, demand.departmentId)}
                     </td>
-                    <td className="px-6 py-5 text-center whitespace-nowrap">{getStatusBadge(demand.status)}</td>
+                    <td className="px-6 py-5 text-center whitespace-nowrap">{renderStatusBadge(demand.status, demand.departmentId)}</td>
                     <td className="px-6 py-5 text-center whitespace-nowrap">
                       <div className="inline-flex items-center gap-2 text-slate-700 text-sm">
                         <User className="w-4 h-4 text-slate-400" />
@@ -954,18 +1232,33 @@ export default function DemandsPage() {
                 </select>
                 <select
                   className="w-full px-4 py-2.5 text-base border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={selectedPriority}
+                  onChange={(e) => {
+                    setSelectedPriority(e.target.value);
+                    setPage(1);
+                  }}
+                >
+                  <option value="all">所有优先级</option>
+                  {allPriorityOptions.map((p) => (
+                    <option key={p.value} value={p.value}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="w-full px-4 py-2.5 text-base border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   value={selectedStatus}
                   onChange={(e) => {
-                    setSelectedStatus(e.target.value as DemandStatus | 'all');
+                    setSelectedStatus(e.target.value);
                     setPage(1);
                   }}
                 >
                   <option value="all">所有状态</option>
-                  <option value={DemandStatus.PENDING}>{DemandStatus.PENDING}</option>
-                  <option value={DemandStatus.IN_PROGRESS}>{DemandStatus.IN_PROGRESS}</option>
-                  <option value={DemandStatus.DONE}>{DemandStatus.DONE}</option>
-                  <option value={DemandStatus.DELAYED}>{DemandStatus.DELAYED}</option>
-                  <option value={DemandStatus.IGNORED}>{DemandStatus.IGNORED}</option>
+                  {allStatusOptions.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1222,16 +1515,11 @@ export default function DemandsPage() {
                 <div className="font-mono text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded">
                   {demand.id}
                 </div>
-                <div className="flex gap-2">
-                  <span
-                    className={`px-2 py-0.5 rounded border text-xs font-bold ${getPriorityColor(
-                      demand.priority,
-                    )}`}
-                  >
-                    {demand.priority}
-                  </span>
-                  {getStatusBadge(demand.status)}
-                </div>
+                  <div className="flex gap-2">
+                  {renderPriorityBadge(demand.priority, demand.departmentId)}
+                  {renderStatusBadge(demand.status, demand.departmentId)}
+                  </div>
+
               </div>
               <h3 className="text-lg font-bold text-slate-900 mb-2">{demand.title}</h3>
               <p className="text-sm text-slate-500 mb-4 line-clamp-2">{demand.description}</p>

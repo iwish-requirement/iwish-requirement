@@ -13,6 +13,7 @@ import {
   Users,
   Shield,
   Activity,
+  GitBranch,
 } from "lucide-react";
 import { Department, FieldDefinition, FieldType } from "../../../types";
 import Modal from "../../../components/ui/Modal";
@@ -31,6 +32,7 @@ type AdminTab =
   | "users"
   | "roles"
   | "fields"
+  | "workflow"
   | "scoring"
   | "scorePeriods"
   | "webhooks";
@@ -108,6 +110,15 @@ export default function AdminPage() {
         can("settings.fields.manage") ||
         can("department.fields_manage")
       );
+    if (tab === "workflow")
+      return (
+        hasShell ||
+        can("settings.workflow.view") ||
+        can("settings.workflow.manage") ||
+        can("settings.departments.manage") ||
+        can("settings.global.manage")
+      );
+
     if (tab === "scoring")
       return hasShell || can("settings.scoring.view") || can("settings.scoring.manage") || can("admin.user_manage");
     if (tab === "scorePeriods")
@@ -129,6 +140,13 @@ export default function AdminPage() {
     if (tab === "global") return can("settings.global.manage");
     if (tab === "departments") return can("settings.departments.manage");
     if (tab === "fields") return can("settings.fields.manage") || can("department.fields_manage");
+    if (tab === "workflow")
+      return (
+        can("settings.workflow.manage") ||
+        can("settings.departments.manage") ||
+        can("settings.global.manage")
+      );
+
     if (tab === "scoring") return can("settings.scoring.manage") || can("admin.user_manage");
     if (tab === "scorePeriods") return can("settings.score_periods.manage") || can("admin.user_manage");
     if (tab === "roles") return can("settings.roles.manage") || can("admin.user_manage");
@@ -148,6 +166,14 @@ export default function AdminPage() {
         can("settings.fields.manage") ||
         can("department.fields_manage")
       );
+    if (tab === "workflow")
+      return (
+        can("settings.workflow.view") ||
+        can("settings.workflow.manage") ||
+        can("settings.departments.manage") ||
+        can("settings.global.manage")
+      );
+
     if (tab === "scoring")
       return (
         can("settings.scoring.view") ||
@@ -188,6 +214,7 @@ export default function AdminPage() {
     { id: "users", label: "用户管理", icon: Users },
     { id: "roles", label: "权限管理", icon: Shield },
     { id: "fields", label: "字段模板", icon: Database },
+    { id: "workflow", label: "工作流配置", icon: GitBranch },
     { id: "scoring", label: "评分模板", icon: Star },
     { id: "scorePeriods", label: "评分周期", icon: Star },
     { id: "webhooks", label: "Webhook 集成", icon: Activity },
@@ -294,6 +321,19 @@ export default function AdminPage() {
                   <FieldTemplates canManage={canManageTab("fields")} />
                 ) : (
                   renderNoPermission("字段模板")
+                ))}
+              {activeTab === "workflow" &&
+                (canReadTab("workflow") ? (
+                  <div className="space-y-3">
+                    {!canManageTab("workflow") && (
+                      <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg">
+                        当前为只读权限，可查看工作流配置，但无法新增、编辑或删除。
+                      </div>
+                    )}
+                    <WorkflowConfigSettings canManage={canManageTab("workflow")} />
+                  </div>
+                ) : (
+                  renderNoPermission("工作流配置")
                 ))}
               {activeTab === "scoring" &&
                 (canReadTab("scoring") ? (
@@ -520,6 +560,407 @@ const GlobalSettings = ({ canManage }: { canManage: boolean }) => {
           {saving ? "保存中..." : "保存配置"}
         </button>
       </div>
+    </div>
+  );
+};
+
+// -------------------- 工作流配置（优先级与状态） --------------------
+
+const WorkflowConfigSettingsLegacy1 = ({ canManage }: { canManage: boolean }) => {
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [selectedDeptId, setSelectedDeptId] = useState<string>("");
+  const [config, setConfig] = useState<{
+    priorities: Array<{ value: string; label: string; color: string; order: number }>;
+    statuses: Array<{ value: string; label: string; color: string; order: number; transitions?: string[] }>;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadDepartments = async () => {
+      try {
+        const res = await fetch("/api/departments");
+        if (!res.ok) {
+          console.error("load workflow departments error", await res.text());
+          return;
+        }
+        const json = await res.json();
+        const items = (json.items || []) as { id: number; name: string; slug: string | null }[];
+        const mapped: Department[] = items.map((d) => ({
+          id: String(d.id),
+          name: d.name,
+          slug: d.slug || "",
+        }));
+        setDepartments(mapped);
+        if (mapped.length > 0) {
+          setSelectedDeptId(mapped[0].id);
+        }
+      } catch (e) {
+        console.error("load workflow departments error", e);
+      }
+    };
+
+    loadDepartments();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedDeptId) {
+      setConfig(null);
+      return;
+    }
+    const loadConfig = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await authorizedFetch(`/api/departments/${selectedDeptId}/workflow-config`);
+        if (!res.ok) {
+          const text = await res.text();
+          console.error("load workflow config error", text);
+          if (res.status === 401) {
+            setError("登录已失效，请重新登录后再试");
+          } else if (res.status === 403) {
+            setError("您没有权限查看工作流配置，如需操作请联系系统管理员。");
+          } else {
+            setError("加载工作流配置失败，请稍后重试");
+          }
+          setConfig(null);
+          return;
+        }
+        const json = await res.json();
+        if (json.config) {
+          setConfig(json.config);
+        } else {
+          setConfig({ priorities: [], statuses: [] });
+        }
+      } catch (e) {
+        console.error("load workflow config error", e);
+        setError("加载工作流配置失败，请检查网络后重试");
+        setConfig(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadConfig();
+  }, [selectedDeptId]);
+
+  const handleSave = async () => {
+    if (!selectedDeptId || !config) return;
+    try {
+      setSaving(true);
+      setError(null);
+      setSuccess(null);
+      const res = await authorizedFetch(`/api/departments/${selectedDeptId}/workflow-config`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("save workflow config error", text);
+        if (res.status === 401) {
+          setError("登录已失效，请重新登录后再试");
+        } else if (res.status === 403) {
+          setError("您没有权限编辑工作流配置，如需操作请联系系统管理员。");
+        } else {
+          setError("保存工作流配置失败，请稍后重试");
+        }
+        return;
+      }
+      const json = await res.json();
+      if (json.config) {
+        setConfig(json.config);
+      }
+      setSuccess("工作流配置已保存");
+    } catch (e) {
+      console.error("save workflow config error", e);
+      setError("保存工作流配置失败，请检查网络后重试");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addPriority = () => {
+    if (!config) return;
+    const newPriority = {
+      value: `priority_${Date.now()}`,
+      label: "新优先级",
+      color: "#6b7280",
+      order: config.priorities.length + 1,
+    };
+    setConfig({ ...config, priorities: [...config.priorities, newPriority] });
+  };
+
+  const updatePriority = (index: number, field: string, value: any) => {
+    if (!config) return;
+    const updated = [...config.priorities];
+    updated[index] = { ...updated[index], [field]: value };
+    setConfig({ ...config, priorities: updated });
+  };
+
+  const deletePriority = (index: number) => {
+    if (!config) return;
+    const updated = config.priorities.filter((_, i) => i !== index);
+    setConfig({ ...config, priorities: updated });
+  };
+
+  const addStatus = () => {
+    if (!config) return;
+    const newStatus = {
+      value: `status_${Date.now()}`,
+      label: "新状态",
+      color: "#6b7280",
+      order: config.statuses.length + 1,
+      transitions: [],
+    };
+    setConfig({ ...config, statuses: [...config.statuses, newStatus] });
+  };
+
+  const updateStatus = (index: number, field: string, value: any) => {
+    if (!config) return;
+    const updated = [...config.statuses];
+    updated[index] = { ...updated[index], [field]: value };
+    setConfig({ ...config, statuses: updated });
+  };
+
+  const deleteStatus = (index: number) => {
+    if (!config) return;
+    const updated = config.statuses.filter((_, i) => i !== index);
+    setConfig({ ...config, statuses: updated });
+  };
+
+  return (
+    <div className="animate-fadeIn">
+      {!canManage && (
+        <div className="mb-4 text-xs text-slate-600 bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg">
+          当前为只读权限，可查看工作流配置，但无法新增、编辑或删除。
+        </div>
+      )}
+
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+        <h2 className="text-xl font-bold text-slate-900">工作流配置</h2>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-500">选择部门</span>
+          <select
+            value={selectedDeptId}
+            onChange={(e) => setSelectedDeptId(e.target.value)}
+            className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none min-w-[200px]"
+          >
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-3 text-xs text-rose-600 bg-rose-50 border border-rose-100 px-3 py-2 rounded-lg">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="mb-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-lg">
+          {success}
+        </div>
+      )}
+
+      {loading && (
+        <div className="p-6 text-center text-slate-400 text-sm">正在加载工作流配置...</div>
+      )}
+
+      {!loading && config && (
+        <div className="space-y-6">
+          {/* 优先级配置 */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-800">优先级配置</h3>
+              <button
+                onClick={addPriority}
+                disabled={!canManage}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-3 h-3" /> 添加优先级
+              </button>
+            </div>
+            <div className="space-y-3">
+              {config.priorities.length === 0 && (
+                <div className="p-6 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
+                  该部门暂无优先级配置，请点击"添加优先级"按钮进行配置。
+                </div>
+              )}
+              {config.priorities.map((p, index) => (
+                <div
+                  key={index}
+                  className="flex flex-col md:flex-row md:items-center gap-3 p-4 border border-slate-200 rounded-lg bg-slate-50"
+                >
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-500 mb-1">值（英文）</label>
+                    <input
+                      type="text"
+                      value={p.value}
+                      onChange={(e) => updatePriority(index, "value", e.target.value)}
+                      disabled={!canManage}
+                      placeholder="例如：urgent"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-500 mb-1">显示名称</label>
+                    <input
+                      type="text"
+                      value={p.label}
+                      onChange={(e) => updatePriority(index, "label", e.target.value)}
+                      disabled={!canManage}
+                      placeholder="例如：紧急"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">颜色</label>
+                    <input
+                      type="color"
+                      value={p.color}
+                      onChange={(e) => updatePriority(index, "color", e.target.value)}
+                      disabled={!canManage}
+                      className="w-20 h-10 border border-slate-300 rounded-lg cursor-pointer disabled:opacity-60"
+                    />
+                  </div>
+                  <div className="w-20">
+                    <label className="block text-xs text-slate-500 mb-1">排序</label>
+                    <input
+                      type="number"
+                      value={p.order}
+                      onChange={(e) => updatePriority(index, "order", Number(e.target.value))}
+                      disabled={!canManage}
+                      className="w-full px-2 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                  <button
+                    onClick={() => deletePriority(index)}
+                    disabled={!canManage}
+                    className="mt-5 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 状态配置 */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-800">状态配置</h3>
+              <button
+                onClick={addStatus}
+                disabled={!canManage}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-3 h-3" /> 添加状态
+              </button>
+            </div>
+            <div className="space-y-3">
+              {config.statuses.length === 0 && (
+                <div className="p-6 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
+                  该部门暂无状态配置，请点击"添加状态"按钮进行配置。
+                </div>
+              )}
+              {config.statuses.map((s, index) => (
+                <div
+                  key={index}
+                  className="flex flex-col gap-3 p-4 border border-slate-200 rounded-lg bg-slate-50"
+                >
+                  <div className="flex flex-col md:flex-row md:items-center gap-3">
+                    <div className="flex-1">
+                      <label className="block text-xs text-slate-500 mb-1">值（英文）</label>
+                      <input
+                        type="text"
+                        value={s.value}
+                        onChange={(e) => updateStatus(index, "value", e.target.value)}
+                        disabled={!canManage}
+                        placeholder="例如：in_progress"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs text-slate-500 mb-1">显示名称</label>
+                      <input
+                        type="text"
+                        value={s.label}
+                        onChange={(e) => updateStatus(index, "label", e.target.value)}
+                        disabled={!canManage}
+                        placeholder="例如：进行中"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">颜色</label>
+                      <input
+                        type="color"
+                        value={s.color}
+                        onChange={(e) => updateStatus(index, "color", e.target.value)}
+                        disabled={!canManage}
+                        className="w-20 h-10 border border-slate-300 rounded-lg cursor-pointer disabled:opacity-60"
+                      />
+                    </div>
+                    <div className="w-20">
+                      <label className="block text-xs text-slate-500 mb-1">排序</label>
+                      <input
+                        type="number"
+                        value={s.order}
+                        onChange={(e) => updateStatus(index, "order", Number(e.target.value))}
+                        disabled={!canManage}
+                        className="w-full px-2 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                      />
+                    </div>
+                    <button
+                      onClick={() => deleteStatus(index)}
+                      disabled={!canManage}
+                      className="mt-5 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">
+                      可流转到（多选，用逗号分隔状态值）
+                    </label>
+                    <input
+                      type="text"
+                      value={s.transitions?.join(",") || ""}
+                      onChange={(e) =>
+                        updateStatus(
+                          index,
+                          "transitions",
+                          e.target.value ? e.target.value.split(",").map((v) => v.trim()) : []
+                        )
+                      }
+                      disabled={!canManage}
+                      placeholder="例如：in_progress,done"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 保存按钮 */}
+          <div className="flex justify-end">
+            <button
+              onClick={handleSave}
+              disabled={saving || !canManage}
+              className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {saving ? "保存中..." : "保存配置"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -919,6 +1360,407 @@ const DepartmentManagement = ({ canManage }: { canManage: boolean }) => {
           </div>
         </div>
       </Modal>
+    </div>
+  );
+};
+
+// -------------------- 工作流配置（优先级与状态） --------------------
+
+const WorkflowConfigSettingsLegacy2 = ({ canManage }: { canManage: boolean }) => {
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [selectedDeptId, setSelectedDeptId] = useState<string>("");
+  const [config, setConfig] = useState<{
+    priorities: Array<{ value: string; label: string; color: string; order: number }>;
+    statuses: Array<{ value: string; label: string; color: string; order: number; transitions?: string[] }>;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadDepartments = async () => {
+      try {
+        const res = await fetch("/api/departments");
+        if (!res.ok) {
+          console.error("load workflow departments error", await res.text());
+          return;
+        }
+        const json = await res.json();
+        const items = (json.items || []) as { id: number; name: string; slug: string | null }[];
+        const mapped: Department[] = items.map((d) => ({
+          id: String(d.id),
+          name: d.name,
+          slug: d.slug || "",
+        }));
+        setDepartments(mapped);
+        if (mapped.length > 0) {
+          setSelectedDeptId(mapped[0].id);
+        }
+      } catch (e) {
+        console.error("load workflow departments error", e);
+      }
+    };
+
+    loadDepartments();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedDeptId) {
+      setConfig(null);
+      return;
+    }
+    const loadConfig = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await authorizedFetch(`/api/departments/${selectedDeptId}/workflow-config`);
+        if (!res.ok) {
+          const text = await res.text();
+          console.error("load workflow config error", text);
+          if (res.status === 401) {
+            setError("登录已失效，请重新登录后再试");
+          } else if (res.status === 403) {
+            setError("您没有权限查看工作流配置，如需操作请联系系统管理员。");
+          } else {
+            setError("加载工作流配置失败，请稍后重试");
+          }
+          setConfig(null);
+          return;
+        }
+        const json = await res.json();
+        if (json.config) {
+          setConfig(json.config);
+        } else {
+          setConfig({ priorities: [], statuses: [] });
+        }
+      } catch (e) {
+        console.error("load workflow config error", e);
+        setError("加载工作流配置失败，请检查网络后重试");
+        setConfig(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadConfig();
+  }, [selectedDeptId]);
+
+  const handleSave = async () => {
+    if (!selectedDeptId || !config) return;
+    try {
+      setSaving(true);
+      setError(null);
+      setSuccess(null);
+      const res = await authorizedFetch(`/api/departments/${selectedDeptId}/workflow-config`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("save workflow config error", text);
+        if (res.status === 401) {
+          setError("登录已失效，请重新登录后再试");
+        } else if (res.status === 403) {
+          setError("您没有权限编辑工作流配置，如需操作请联系系统管理员。");
+        } else {
+          setError("保存工作流配置失败，请稍后重试");
+        }
+        return;
+      }
+      const json = await res.json();
+      if (json.config) {
+        setConfig(json.config);
+      }
+      setSuccess("工作流配置已保存");
+    } catch (e) {
+      console.error("save workflow config error", e);
+      setError("保存工作流配置失败，请检查网络后重试");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addPriority = () => {
+    if (!config) return;
+    const newPriority = {
+      value: `priority_${Date.now()}`,
+      label: "新优先级",
+      color: "#6b7280",
+      order: config.priorities.length + 1,
+    };
+    setConfig({ ...config, priorities: [...config.priorities, newPriority] });
+  };
+
+  const updatePriority = (index: number, field: string, value: any) => {
+    if (!config) return;
+    const updated = [...config.priorities];
+    updated[index] = { ...updated[index], [field]: value };
+    setConfig({ ...config, priorities: updated });
+  };
+
+  const deletePriority = (index: number) => {
+    if (!config) return;
+    const updated = config.priorities.filter((_, i) => i !== index);
+    setConfig({ ...config, priorities: updated });
+  };
+
+  const addStatus = () => {
+    if (!config) return;
+    const newStatus = {
+      value: `status_${Date.now()}`,
+      label: "新状态",
+      color: "#6b7280",
+      order: config.statuses.length + 1,
+      transitions: [],
+    };
+    setConfig({ ...config, statuses: [...config.statuses, newStatus] });
+  };
+
+  const updateStatus = (index: number, field: string, value: any) => {
+    if (!config) return;
+    const updated = [...config.statuses];
+    updated[index] = { ...updated[index], [field]: value };
+    setConfig({ ...config, statuses: updated });
+  };
+
+  const deleteStatus = (index: number) => {
+    if (!config) return;
+    const updated = config.statuses.filter((_, i) => i !== index);
+    setConfig({ ...config, statuses: updated });
+  };
+
+  return (
+    <div className="animate-fadeIn">
+      {!canManage && (
+        <div className="mb-4 text-xs text-slate-600 bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg">
+          当前为只读权限，可查看工作流配置，但无法新增、编辑或删除。
+        </div>
+      )}
+
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+        <h2 className="text-xl font-bold text-slate-900">工作流配置</h2>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-500">选择部门</span>
+          <select
+            value={selectedDeptId}
+            onChange={(e) => setSelectedDeptId(e.target.value)}
+            className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none min-w-[200px]"
+          >
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-3 text-xs text-rose-600 bg-rose-50 border border-rose-100 px-3 py-2 rounded-lg">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="mb-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-lg">
+          {success}
+        </div>
+      )}
+
+      {loading && (
+        <div className="p-6 text-center text-slate-400 text-sm">正在加载工作流配置...</div>
+      )}
+
+      {!loading && config && (
+        <div className="space-y-6">
+          {/* 优先级配置 */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-800">优先级配置</h3>
+              <button
+                onClick={addPriority}
+                disabled={!canManage}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-3 h-3" /> 添加优先级
+              </button>
+            </div>
+            <div className="space-y-3">
+              {config.priorities.length === 0 && (
+                <div className="p-6 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
+                  该部门暂无优先级配置，请点击"添加优先级"按钮进行配置。
+                </div>
+              )}
+              {config.priorities.map((p, index) => (
+                <div
+                  key={index}
+                  className="flex flex-col md:flex-row md:items-center gap-3 p-4 border border-slate-200 rounded-lg bg-slate-50"
+                >
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-500 mb-1">值（英文）</label>
+                    <input
+                      type="text"
+                      value={p.value}
+                      onChange={(e) => updatePriority(index, "value", e.target.value)}
+                      disabled={!canManage}
+                      placeholder="例如：urgent"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-500 mb-1">显示名称</label>
+                    <input
+                      type="text"
+                      value={p.label}
+                      onChange={(e) => updatePriority(index, "label", e.target.value)}
+                      disabled={!canManage}
+                      placeholder="例如：紧急"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">颜色</label>
+                    <input
+                      type="color"
+                      value={p.color}
+                      onChange={(e) => updatePriority(index, "color", e.target.value)}
+                      disabled={!canManage}
+                      className="w-20 h-10 border border-slate-300 rounded-lg cursor-pointer disabled:opacity-60"
+                    />
+                  </div>
+                  <div className="w-20">
+                    <label className="block text-xs text-slate-500 mb-1">排序</label>
+                    <input
+                      type="number"
+                      value={p.order}
+                      onChange={(e) => updatePriority(index, "order", Number(e.target.value))}
+                      disabled={!canManage}
+                      className="w-full px-2 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                  <button
+                    onClick={() => deletePriority(index)}
+                    disabled={!canManage}
+                    className="mt-5 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 状态配置 */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-800">状态配置</h3>
+              <button
+                onClick={addStatus}
+                disabled={!canManage}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-3 h-3" /> 添加状态
+              </button>
+            </div>
+            <div className="space-y-3">
+              {config.statuses.length === 0 && (
+                <div className="p-6 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
+                  该部门暂无状态配置，请点击"添加状态"按钮进行配置。
+                </div>
+              )}
+              {config.statuses.map((s, index) => (
+                <div
+                  key={index}
+                  className="flex flex-col gap-3 p-4 border border-slate-200 rounded-lg bg-slate-50"
+                >
+                  <div className="flex flex-col md:flex-row md:items-center gap-3">
+                    <div className="flex-1">
+                      <label className="block text-xs text-slate-500 mb-1">值（英文）</label>
+                      <input
+                        type="text"
+                        value={s.value}
+                        onChange={(e) => updateStatus(index, "value", e.target.value)}
+                        disabled={!canManage}
+                        placeholder="例如：in_progress"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs text-slate-500 mb-1">显示名称</label>
+                      <input
+                        type="text"
+                        value={s.label}
+                        onChange={(e) => updateStatus(index, "label", e.target.value)}
+                        disabled={!canManage}
+                        placeholder="例如：进行中"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">颜色</label>
+                      <input
+                        type="color"
+                        value={s.color}
+                        onChange={(e) => updateStatus(index, "color", e.target.value)}
+                        disabled={!canManage}
+                        className="w-20 h-10 border border-slate-300 rounded-lg cursor-pointer disabled:opacity-60"
+                      />
+                    </div>
+                    <div className="w-20">
+                      <label className="block text-xs text-slate-500 mb-1">排序</label>
+                      <input
+                        type="number"
+                        value={s.order}
+                        onChange={(e) => updateStatus(index, "order", Number(e.target.value))}
+                        disabled={!canManage}
+                        className="w-full px-2 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                      />
+                    </div>
+                    <button
+                      onClick={() => deleteStatus(index)}
+                      disabled={!canManage}
+                      className="mt-5 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">
+                      可流转到（多选，用逗号分隔状态值）
+                    </label>
+                    <input
+                      type="text"
+                      value={s.transitions?.join(",") || ""}
+                      onChange={(e) =>
+                        updateStatus(
+                          index,
+                          "transitions",
+                          e.target.value ? e.target.value.split(",").map((v) => v.trim()) : []
+                        )
+                      }
+                      disabled={!canManage}
+                      placeholder="例如：in_progress,done"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 保存按钮 */}
+          <div className="flex justify-end">
+            <button
+              onClick={handleSave}
+              disabled={saving || !canManage}
+              className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {saving ? "保存中..." : "保存配置"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1541,6 +2383,407 @@ const FieldTemplates = ({ canManage }: { canManage: boolean }) => {
   );
 };
 
+// -------------------- 工作流配置（优先级与状态） --------------------
+
+const WorkflowConfigSettingsLegacy3 = ({ canManage }: { canManage: boolean }) => {
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [selectedDeptId, setSelectedDeptId] = useState<string>("");
+  const [config, setConfig] = useState<{
+    priorities: Array<{ value: string; label: string; color: string; order: number }>;
+    statuses: Array<{ value: string; label: string; color: string; order: number; transitions?: string[] }>;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadDepartments = async () => {
+      try {
+        const res = await fetch("/api/departments");
+        if (!res.ok) {
+          console.error("load workflow departments error", await res.text());
+          return;
+        }
+        const json = await res.json();
+        const items = (json.items || []) as { id: number; name: string; slug: string | null }[];
+        const mapped: Department[] = items.map((d) => ({
+          id: String(d.id),
+          name: d.name,
+          slug: d.slug || "",
+        }));
+        setDepartments(mapped);
+        if (mapped.length > 0) {
+          setSelectedDeptId(mapped[0].id);
+        }
+      } catch (e) {
+        console.error("load workflow departments error", e);
+      }
+    };
+
+    loadDepartments();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedDeptId) {
+      setConfig(null);
+      return;
+    }
+    const loadConfig = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await authorizedFetch(`/api/departments/${selectedDeptId}/workflow-config`);
+        if (!res.ok) {
+          const text = await res.text();
+          console.error("load workflow config error", text);
+          if (res.status === 401) {
+            setError("登录已失效，请重新登录后再试");
+          } else if (res.status === 403) {
+            setError("您没有权限查看工作流配置，如需操作请联系系统管理员。");
+          } else {
+            setError("加载工作流配置失败，请稍后重试");
+          }
+          setConfig(null);
+          return;
+        }
+        const json = await res.json();
+        if (json.config) {
+          setConfig(json.config);
+        } else {
+          setConfig({ priorities: [], statuses: [] });
+        }
+      } catch (e) {
+        console.error("load workflow config error", e);
+        setError("加载工作流配置失败，请检查网络后重试");
+        setConfig(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadConfig();
+  }, [selectedDeptId]);
+
+  const handleSave = async () => {
+    if (!selectedDeptId || !config) return;
+    try {
+      setSaving(true);
+      setError(null);
+      setSuccess(null);
+      const res = await authorizedFetch(`/api/departments/${selectedDeptId}/workflow-config`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("save workflow config error", text);
+        if (res.status === 401) {
+          setError("登录已失效，请重新登录后再试");
+        } else if (res.status === 403) {
+          setError("您没有权限编辑工作流配置，如需操作请联系系统管理员。");
+        } else {
+          setError("保存工作流配置失败，请稍后重试");
+        }
+        return;
+      }
+      const json = await res.json();
+      if (json.config) {
+        setConfig(json.config);
+      }
+      setSuccess("工作流配置已保存");
+    } catch (e) {
+      console.error("save workflow config error", e);
+      setError("保存工作流配置失败，请检查网络后重试");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addPriority = () => {
+    if (!config) return;
+    const newPriority = {
+      value: `priority_${Date.now()}`,
+      label: "新优先级",
+      color: "#6b7280",
+      order: config.priorities.length + 1,
+    };
+    setConfig({ ...config, priorities: [...config.priorities, newPriority] });
+  };
+
+  const updatePriority = (index: number, field: string, value: any) => {
+    if (!config) return;
+    const updated = [...config.priorities];
+    updated[index] = { ...updated[index], [field]: value };
+    setConfig({ ...config, priorities: updated });
+  };
+
+  const deletePriority = (index: number) => {
+    if (!config) return;
+    const updated = config.priorities.filter((_, i) => i !== index);
+    setConfig({ ...config, priorities: updated });
+  };
+
+  const addStatus = () => {
+    if (!config) return;
+    const newStatus = {
+      value: `status_${Date.now()}`,
+      label: "新状态",
+      color: "#6b7280",
+      order: config.statuses.length + 1,
+      transitions: [],
+    };
+    setConfig({ ...config, statuses: [...config.statuses, newStatus] });
+  };
+
+  const updateStatus = (index: number, field: string, value: any) => {
+    if (!config) return;
+    const updated = [...config.statuses];
+    updated[index] = { ...updated[index], [field]: value };
+    setConfig({ ...config, statuses: updated });
+  };
+
+  const deleteStatus = (index: number) => {
+    if (!config) return;
+    const updated = config.statuses.filter((_, i) => i !== index);
+    setConfig({ ...config, statuses: updated });
+  };
+
+  return (
+    <div className="animate-fadeIn">
+      {!canManage && (
+        <div className="mb-4 text-xs text-slate-600 bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg">
+          当前为只读权限，可查看工作流配置，但无法新增、编辑或删除。
+        </div>
+      )}
+
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+        <h2 className="text-xl font-bold text-slate-900">工作流配置</h2>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-500">选择部门</span>
+          <select
+            value={selectedDeptId}
+            onChange={(e) => setSelectedDeptId(e.target.value)}
+            className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none min-w-[200px]"
+          >
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-3 text-xs text-rose-600 bg-rose-50 border border-rose-100 px-3 py-2 rounded-lg">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="mb-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-lg">
+          {success}
+        </div>
+      )}
+
+      {loading && (
+        <div className="p-6 text-center text-slate-400 text-sm">正在加载工作流配置...</div>
+      )}
+
+      {!loading && config && (
+        <div className="space-y-6">
+          {/* 优先级配置 */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-800">优先级配置</h3>
+              <button
+                onClick={addPriority}
+                disabled={!canManage}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-3 h-3" /> 添加优先级
+              </button>
+            </div>
+            <div className="space-y-3">
+              {config.priorities.length === 0 && (
+                <div className="p-6 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
+                  该部门暂无优先级配置，请点击"添加优先级"按钮进行配置。
+                </div>
+              )}
+              {config.priorities.map((p, index) => (
+                <div
+                  key={index}
+                  className="flex flex-col md:flex-row md:items-center gap-3 p-4 border border-slate-200 rounded-lg bg-slate-50"
+                >
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-500 mb-1">值（英文）</label>
+                    <input
+                      type="text"
+                      value={p.value}
+                      onChange={(e) => updatePriority(index, "value", e.target.value)}
+                      disabled={!canManage}
+                      placeholder="例如：urgent"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-500 mb-1">显示名称</label>
+                    <input
+                      type="text"
+                      value={p.label}
+                      onChange={(e) => updatePriority(index, "label", e.target.value)}
+                      disabled={!canManage}
+                      placeholder="例如：紧急"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">颜色</label>
+                    <input
+                      type="color"
+                      value={p.color}
+                      onChange={(e) => updatePriority(index, "color", e.target.value)}
+                      disabled={!canManage}
+                      className="w-20 h-10 border border-slate-300 rounded-lg cursor-pointer disabled:opacity-60"
+                    />
+                  </div>
+                  <div className="w-20">
+                    <label className="block text-xs text-slate-500 mb-1">排序</label>
+                    <input
+                      type="number"
+                      value={p.order}
+                      onChange={(e) => updatePriority(index, "order", Number(e.target.value))}
+                      disabled={!canManage}
+                      className="w-full px-2 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                  <button
+                    onClick={() => deletePriority(index)}
+                    disabled={!canManage}
+                    className="mt-5 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 状态配置 */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-800">状态配置</h3>
+              <button
+                onClick={addStatus}
+                disabled={!canManage}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-3 h-3" /> 添加状态
+              </button>
+            </div>
+            <div className="space-y-3">
+              {config.statuses.length === 0 && (
+                <div className="p-6 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
+                  该部门暂无状态配置，请点击"添加状态"按钮进行配置。
+                </div>
+              )}
+              {config.statuses.map((s, index) => (
+                <div
+                  key={index}
+                  className="flex flex-col gap-3 p-4 border border-slate-200 rounded-lg bg-slate-50"
+                >
+                  <div className="flex flex-col md:flex-row md:items-center gap-3">
+                    <div className="flex-1">
+                      <label className="block text-xs text-slate-500 mb-1">值（英文）</label>
+                      <input
+                        type="text"
+                        value={s.value}
+                        onChange={(e) => updateStatus(index, "value", e.target.value)}
+                        disabled={!canManage}
+                        placeholder="例如：in_progress"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs text-slate-500 mb-1">显示名称</label>
+                      <input
+                        type="text"
+                        value={s.label}
+                        onChange={(e) => updateStatus(index, "label", e.target.value)}
+                        disabled={!canManage}
+                        placeholder="例如：进行中"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">颜色</label>
+                      <input
+                        type="color"
+                        value={s.color}
+                        onChange={(e) => updateStatus(index, "color", e.target.value)}
+                        disabled={!canManage}
+                        className="w-20 h-10 border border-slate-300 rounded-lg cursor-pointer disabled:opacity-60"
+                      />
+                    </div>
+                    <div className="w-20">
+                      <label className="block text-xs text-slate-500 mb-1">排序</label>
+                      <input
+                        type="number"
+                        value={s.order}
+                        onChange={(e) => updateStatus(index, "order", Number(e.target.value))}
+                        disabled={!canManage}
+                        className="w-full px-2 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                      />
+                    </div>
+                    <button
+                      onClick={() => deleteStatus(index)}
+                      disabled={!canManage}
+                      className="mt-5 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">
+                      可流转到（多选，用逗号分隔状态值）
+                    </label>
+                    <input
+                      type="text"
+                      value={s.transitions?.join(",") || ""}
+                      onChange={(e) =>
+                        updateStatus(
+                          index,
+                          "transitions",
+                          e.target.value ? e.target.value.split(",").map((v) => v.trim()) : []
+                        )
+                      }
+                      disabled={!canManage}
+                      placeholder="例如：in_progress,done"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 保存按钮 */}
+          <div className="flex justify-end">
+            <button
+              onClick={handleSave}
+              disabled={saving || !canManage}
+              className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {saving ? "保存中..." : "保存配置"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // -------------------- 评分周期配置（按服务月配置评分窗口） --------------------
 
 interface ScorePeriodItem {
@@ -1942,6 +3185,407 @@ const ScorePeriodsSettings = ({ canManage }: { canManage: boolean }) => {
           </div>
         </div>
       </Modal>
+    </div>
+  );
+};
+
+// -------------------- 工作流配置（优先级与状态） --------------------
+
+const WorkflowConfigSettingsLegacy4 = ({ canManage }: { canManage: boolean }) => {
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [selectedDeptId, setSelectedDeptId] = useState<string>("");
+  const [config, setConfig] = useState<{
+    priorities: Array<{ value: string; label: string; color: string; order: number }>;
+    statuses: Array<{ value: string; label: string; color: string; order: number; transitions?: string[] }>;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadDepartments = async () => {
+      try {
+        const res = await fetch("/api/departments");
+        if (!res.ok) {
+          console.error("load workflow departments error", await res.text());
+          return;
+        }
+        const json = await res.json();
+        const items = (json.items || []) as { id: number; name: string; slug: string | null }[];
+        const mapped: Department[] = items.map((d) => ({
+          id: String(d.id),
+          name: d.name,
+          slug: d.slug || "",
+        }));
+        setDepartments(mapped);
+        if (mapped.length > 0) {
+          setSelectedDeptId(mapped[0].id);
+        }
+      } catch (e) {
+        console.error("load workflow departments error", e);
+      }
+    };
+
+    loadDepartments();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedDeptId) {
+      setConfig(null);
+      return;
+    }
+    const loadConfig = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await authorizedFetch(`/api/departments/${selectedDeptId}/workflow-config`);
+        if (!res.ok) {
+          const text = await res.text();
+          console.error("load workflow config error", text);
+          if (res.status === 401) {
+            setError("登录已失效，请重新登录后再试");
+          } else if (res.status === 403) {
+            setError("您没有权限查看工作流配置，如需操作请联系系统管理员。");
+          } else {
+            setError("加载工作流配置失败，请稍后重试");
+          }
+          setConfig(null);
+          return;
+        }
+        const json = await res.json();
+        if (json.config) {
+          setConfig(json.config);
+        } else {
+          setConfig({ priorities: [], statuses: [] });
+        }
+      } catch (e) {
+        console.error("load workflow config error", e);
+        setError("加载工作流配置失败，请检查网络后重试");
+        setConfig(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadConfig();
+  }, [selectedDeptId]);
+
+  const handleSave = async () => {
+    if (!selectedDeptId || !config) return;
+    try {
+      setSaving(true);
+      setError(null);
+      setSuccess(null);
+      const res = await authorizedFetch(`/api/departments/${selectedDeptId}/workflow-config`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("save workflow config error", text);
+        if (res.status === 401) {
+          setError("登录已失效，请重新登录后再试");
+        } else if (res.status === 403) {
+          setError("您没有权限编辑工作流配置，如需操作请联系系统管理员。");
+        } else {
+          setError("保存工作流配置失败，请稍后重试");
+        }
+        return;
+      }
+      const json = await res.json();
+      if (json.config) {
+        setConfig(json.config);
+      }
+      setSuccess("工作流配置已保存");
+    } catch (e) {
+      console.error("save workflow config error", e);
+      setError("保存工作流配置失败，请检查网络后重试");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addPriority = () => {
+    if (!config) return;
+    const newPriority = {
+      value: `priority_${Date.now()}`,
+      label: "新优先级",
+      color: "#6b7280",
+      order: config.priorities.length + 1,
+    };
+    setConfig({ ...config, priorities: [...config.priorities, newPriority] });
+  };
+
+  const updatePriority = (index: number, field: string, value: any) => {
+    if (!config) return;
+    const updated = [...config.priorities];
+    updated[index] = { ...updated[index], [field]: value };
+    setConfig({ ...config, priorities: updated });
+  };
+
+  const deletePriority = (index: number) => {
+    if (!config) return;
+    const updated = config.priorities.filter((_, i) => i !== index);
+    setConfig({ ...config, priorities: updated });
+  };
+
+  const addStatus = () => {
+    if (!config) return;
+    const newStatus = {
+      value: `status_${Date.now()}`,
+      label: "新状态",
+      color: "#6b7280",
+      order: config.statuses.length + 1,
+      transitions: [],
+    };
+    setConfig({ ...config, statuses: [...config.statuses, newStatus] });
+  };
+
+  const updateStatus = (index: number, field: string, value: any) => {
+    if (!config) return;
+    const updated = [...config.statuses];
+    updated[index] = { ...updated[index], [field]: value };
+    setConfig({ ...config, statuses: updated });
+  };
+
+  const deleteStatus = (index: number) => {
+    if (!config) return;
+    const updated = config.statuses.filter((_, i) => i !== index);
+    setConfig({ ...config, statuses: updated });
+  };
+
+  return (
+    <div className="animate-fadeIn">
+      {!canManage && (
+        <div className="mb-4 text-xs text-slate-600 bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg">
+          当前为只读权限，可查看工作流配置，但无法新增、编辑或删除。
+        </div>
+      )}
+
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+        <h2 className="text-xl font-bold text-slate-900">工作流配置</h2>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-500">选择部门</span>
+          <select
+            value={selectedDeptId}
+            onChange={(e) => setSelectedDeptId(e.target.value)}
+            className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none min-w-[200px]"
+          >
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-3 text-xs text-rose-600 bg-rose-50 border border-rose-100 px-3 py-2 rounded-lg">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="mb-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-lg">
+          {success}
+        </div>
+      )}
+
+      {loading && (
+        <div className="p-6 text-center text-slate-400 text-sm">正在加载工作流配置...</div>
+      )}
+
+      {!loading && config && (
+        <div className="space-y-6">
+          {/* 优先级配置 */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-800">优先级配置</h3>
+              <button
+                onClick={addPriority}
+                disabled={!canManage}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-3 h-3" /> 添加优先级
+              </button>
+            </div>
+            <div className="space-y-3">
+              {config.priorities.length === 0 && (
+                <div className="p-6 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
+                  该部门暂无优先级配置，请点击"添加优先级"按钮进行配置。
+                </div>
+              )}
+              {config.priorities.map((p, index) => (
+                <div
+                  key={index}
+                  className="flex flex-col md:flex-row md:items-center gap-3 p-4 border border-slate-200 rounded-lg bg-slate-50"
+                >
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-500 mb-1">值（英文）</label>
+                    <input
+                      type="text"
+                      value={p.value}
+                      onChange={(e) => updatePriority(index, "value", e.target.value)}
+                      disabled={!canManage}
+                      placeholder="例如：urgent"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-500 mb-1">显示名称</label>
+                    <input
+                      type="text"
+                      value={p.label}
+                      onChange={(e) => updatePriority(index, "label", e.target.value)}
+                      disabled={!canManage}
+                      placeholder="例如：紧急"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">颜色</label>
+                    <input
+                      type="color"
+                      value={p.color}
+                      onChange={(e) => updatePriority(index, "color", e.target.value)}
+                      disabled={!canManage}
+                      className="w-20 h-10 border border-slate-300 rounded-lg cursor-pointer disabled:opacity-60"
+                    />
+                  </div>
+                  <div className="w-20">
+                    <label className="block text-xs text-slate-500 mb-1">排序</label>
+                    <input
+                      type="number"
+                      value={p.order}
+                      onChange={(e) => updatePriority(index, "order", Number(e.target.value))}
+                      disabled={!canManage}
+                      className="w-full px-2 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                  <button
+                    onClick={() => deletePriority(index)}
+                    disabled={!canManage}
+                    className="mt-5 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 状态配置 */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-800">状态配置</h3>
+              <button
+                onClick={addStatus}
+                disabled={!canManage}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-3 h-3" /> 添加状态
+              </button>
+            </div>
+            <div className="space-y-3">
+              {config.statuses.length === 0 && (
+                <div className="p-6 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
+                  该部门暂无状态配置，请点击"添加状态"按钮进行配置。
+                </div>
+              )}
+              {config.statuses.map((s, index) => (
+                <div
+                  key={index}
+                  className="flex flex-col gap-3 p-4 border border-slate-200 rounded-lg bg-slate-50"
+                >
+                  <div className="flex flex-col md:flex-row md:items-center gap-3">
+                    <div className="flex-1">
+                      <label className="block text-xs text-slate-500 mb-1">值（英文）</label>
+                      <input
+                        type="text"
+                        value={s.value}
+                        onChange={(e) => updateStatus(index, "value", e.target.value)}
+                        disabled={!canManage}
+                        placeholder="例如：in_progress"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs text-slate-500 mb-1">显示名称</label>
+                      <input
+                        type="text"
+                        value={s.label}
+                        onChange={(e) => updateStatus(index, "label", e.target.value)}
+                        disabled={!canManage}
+                        placeholder="例如：进行中"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">颜色</label>
+                      <input
+                        type="color"
+                        value={s.color}
+                        onChange={(e) => updateStatus(index, "color", e.target.value)}
+                        disabled={!canManage}
+                        className="w-20 h-10 border border-slate-300 rounded-lg cursor-pointer disabled:opacity-60"
+                      />
+                    </div>
+                    <div className="w-20">
+                      <label className="block text-xs text-slate-500 mb-1">排序</label>
+                      <input
+                        type="number"
+                        value={s.order}
+                        onChange={(e) => updateStatus(index, "order", Number(e.target.value))}
+                        disabled={!canManage}
+                        className="w-full px-2 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                      />
+                    </div>
+                    <button
+                      onClick={() => deleteStatus(index)}
+                      disabled={!canManage}
+                      className="mt-5 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">
+                      可流转到（多选，用逗号分隔状态值）
+                    </label>
+                    <input
+                      type="text"
+                      value={s.transitions?.join(",") || ""}
+                      onChange={(e) =>
+                        updateStatus(
+                          index,
+                          "transitions",
+                          e.target.value ? e.target.value.split(",").map((v) => v.trim()) : []
+                        )
+                      }
+                      disabled={!canManage}
+                      placeholder="例如：in_progress,done"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 保存按钮 */}
+          <div className="flex justify-end">
+            <button
+              onClick={handleSave}
+              disabled={saving || !canManage}
+              className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {saving ? "保存中..." : "保存配置"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -2395,6 +4039,407 @@ const ScoringTemplates = ({ canManage }: { canManage: boolean }) => {
           </button>
         </div>
       </div>
+    </div>
+  );
+};
+
+// -------------------- 工作流配置（优先级与状态） --------------------
+
+const WorkflowConfigSettings = ({ canManage }: { canManage: boolean }) => {
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [selectedDeptId, setSelectedDeptId] = useState<string>("");
+  const [config, setConfig] = useState<{
+    priorities: Array<{ value: string; label: string; color: string; order: number }>;
+    statuses: Array<{ value: string; label: string; color: string; order: number; transitions?: string[] }>;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadDepartments = async () => {
+      try {
+        const res = await fetch("/api/departments");
+        if (!res.ok) {
+          console.error("load workflow departments error", await res.text());
+          return;
+        }
+        const json = await res.json();
+        const items = (json.items || []) as { id: number; name: string; slug: string | null }[];
+        const mapped: Department[] = items.map((d) => ({
+          id: String(d.id),
+          name: d.name,
+          slug: d.slug || "",
+        }));
+        setDepartments(mapped);
+        if (mapped.length > 0) {
+          setSelectedDeptId(mapped[0].id);
+        }
+      } catch (e) {
+        console.error("load workflow departments error", e);
+      }
+    };
+
+    loadDepartments();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedDeptId) {
+      setConfig(null);
+      return;
+    }
+    const loadConfig = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await authorizedFetch(`/api/departments/${selectedDeptId}/workflow-config`);
+        if (!res.ok) {
+          const text = await res.text();
+          console.error("load workflow config error", text);
+          if (res.status === 401) {
+            setError("登录已失效，请重新登录后再试");
+          } else if (res.status === 403) {
+            setError("您没有权限查看工作流配置，如需操作请联系系统管理员。");
+          } else {
+            setError("加载工作流配置失败，请稍后重试");
+          }
+          setConfig(null);
+          return;
+        }
+        const json = await res.json();
+        if (json.config) {
+          setConfig(json.config);
+        } else {
+          setConfig({ priorities: [], statuses: [] });
+        }
+      } catch (e) {
+        console.error("load workflow config error", e);
+        setError("加载工作流配置失败，请检查网络后重试");
+        setConfig(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadConfig();
+  }, [selectedDeptId]);
+
+  const handleSave = async () => {
+    if (!selectedDeptId || !config) return;
+    try {
+      setSaving(true);
+      setError(null);
+      setSuccess(null);
+      const res = await authorizedFetch(`/api/departments/${selectedDeptId}/workflow-config`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("save workflow config error", text);
+        if (res.status === 401) {
+          setError("登录已失效，请重新登录后再试");
+        } else if (res.status === 403) {
+          setError("您没有权限编辑工作流配置，如需操作请联系系统管理员。");
+        } else {
+          setError("保存工作流配置失败，请稍后重试");
+        }
+        return;
+      }
+      const json = await res.json();
+      if (json.config) {
+        setConfig(json.config);
+      }
+      setSuccess("工作流配置已保存");
+    } catch (e) {
+      console.error("save workflow config error", e);
+      setError("保存工作流配置失败，请检查网络后重试");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addPriority = () => {
+    if (!config) return;
+    const newPriority = {
+      value: `priority_${Date.now()}`,
+      label: "新优先级",
+      color: "#6b7280",
+      order: config.priorities.length + 1,
+    };
+    setConfig({ ...config, priorities: [...config.priorities, newPriority] });
+  };
+
+  const updatePriority = (index: number, field: string, value: any) => {
+    if (!config) return;
+    const updated = [...config.priorities];
+    updated[index] = { ...updated[index], [field]: value };
+    setConfig({ ...config, priorities: updated });
+  };
+
+  const deletePriority = (index: number) => {
+    if (!config) return;
+    const updated = config.priorities.filter((_, i) => i !== index);
+    setConfig({ ...config, priorities: updated });
+  };
+
+  const addStatus = () => {
+    if (!config) return;
+    const newStatus = {
+      value: `status_${Date.now()}`,
+      label: "新状态",
+      color: "#6b7280",
+      order: config.statuses.length + 1,
+      transitions: [],
+    };
+    setConfig({ ...config, statuses: [...config.statuses, newStatus] });
+  };
+
+  const updateStatus = (index: number, field: string, value: any) => {
+    if (!config) return;
+    const updated = [...config.statuses];
+    updated[index] = { ...updated[index], [field]: value };
+    setConfig({ ...config, statuses: updated });
+  };
+
+  const deleteStatus = (index: number) => {
+    if (!config) return;
+    const updated = config.statuses.filter((_, i) => i !== index);
+    setConfig({ ...config, statuses: updated });
+  };
+
+  return (
+    <div className="animate-fadeIn">
+      {!canManage && (
+        <div className="mb-4 text-xs text-slate-600 bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg">
+          当前为只读权限，可查看工作流配置，但无法新增、编辑或删除。
+        </div>
+      )}
+
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+        <h2 className="text-xl font-bold text-slate-900">工作流配置</h2>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-500">选择部门</span>
+          <select
+            value={selectedDeptId}
+            onChange={(e) => setSelectedDeptId(e.target.value)}
+            className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none min-w-[200px]"
+          >
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-3 text-xs text-rose-600 bg-rose-50 border border-rose-100 px-3 py-2 rounded-lg">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="mb-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-lg">
+          {success}
+        </div>
+      )}
+
+      {loading && (
+        <div className="p-6 text-center text-slate-400 text-sm">正在加载工作流配置...</div>
+      )}
+
+      {!loading && config && (
+        <div className="space-y-6">
+          {/* 优先级配置 */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-800">优先级配置</h3>
+              <button
+                onClick={addPriority}
+                disabled={!canManage}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-3 h-3" /> 添加优先级
+              </button>
+            </div>
+            <div className="space-y-3">
+              {config.priorities.length === 0 && (
+                <div className="p-6 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
+                  该部门暂无优先级配置，请点击"添加优先级"按钮进行配置。
+                </div>
+              )}
+              {config.priorities.map((p, index) => (
+                <div
+                  key={index}
+                  className="flex flex-col md:flex-row md:items-center gap-3 p-4 border border-slate-200 rounded-lg bg-slate-50"
+                >
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-500 mb-1">值（英文）</label>
+                    <input
+                      type="text"
+                      value={p.value}
+                      onChange={(e) => updatePriority(index, "value", e.target.value)}
+                      disabled={!canManage}
+                      placeholder="例如：urgent"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-500 mb-1">显示名称</label>
+                    <input
+                      type="text"
+                      value={p.label}
+                      onChange={(e) => updatePriority(index, "label", e.target.value)}
+                      disabled={!canManage}
+                      placeholder="例如：紧急"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">颜色</label>
+                    <input
+                      type="color"
+                      value={p.color}
+                      onChange={(e) => updatePriority(index, "color", e.target.value)}
+                      disabled={!canManage}
+                      className="w-20 h-10 border border-slate-300 rounded-lg cursor-pointer disabled:opacity-60"
+                    />
+                  </div>
+                  <div className="w-20">
+                    <label className="block text-xs text-slate-500 mb-1">排序</label>
+                    <input
+                      type="number"
+                      value={p.order}
+                      onChange={(e) => updatePriority(index, "order", Number(e.target.value))}
+                      disabled={!canManage}
+                      className="w-full px-2 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                  <button
+                    onClick={() => deletePriority(index)}
+                    disabled={!canManage}
+                    className="mt-5 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 状态配置 */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-800">状态配置</h3>
+              <button
+                onClick={addStatus}
+                disabled={!canManage}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-3 h-3" /> 添加状态
+              </button>
+            </div>
+            <div className="space-y-3">
+              {config.statuses.length === 0 && (
+                <div className="p-6 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
+                  该部门暂无状态配置，请点击"添加状态"按钮进行配置。
+                </div>
+              )}
+              {config.statuses.map((s, index) => (
+                <div
+                  key={index}
+                  className="flex flex-col gap-3 p-4 border border-slate-200 rounded-lg bg-slate-50"
+                >
+                  <div className="flex flex-col md:flex-row md:items-center gap-3">
+                    <div className="flex-1">
+                      <label className="block text-xs text-slate-500 mb-1">值（英文）</label>
+                      <input
+                        type="text"
+                        value={s.value}
+                        onChange={(e) => updateStatus(index, "value", e.target.value)}
+                        disabled={!canManage}
+                        placeholder="例如：in_progress"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs text-slate-500 mb-1">显示名称</label>
+                      <input
+                        type="text"
+                        value={s.label}
+                        onChange={(e) => updateStatus(index, "label", e.target.value)}
+                        disabled={!canManage}
+                        placeholder="例如：进行中"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">颜色</label>
+                      <input
+                        type="color"
+                        value={s.color}
+                        onChange={(e) => updateStatus(index, "color", e.target.value)}
+                        disabled={!canManage}
+                        className="w-20 h-10 border border-slate-300 rounded-lg cursor-pointer disabled:opacity-60"
+                      />
+                    </div>
+                    <div className="w-20">
+                      <label className="block text-xs text-slate-500 mb-1">排序</label>
+                      <input
+                        type="number"
+                        value={s.order}
+                        onChange={(e) => updateStatus(index, "order", Number(e.target.value))}
+                        disabled={!canManage}
+                        className="w-full px-2 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                      />
+                    </div>
+                    <button
+                      onClick={() => deleteStatus(index)}
+                      disabled={!canManage}
+                      className="mt-5 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">
+                      可流转到（多选，用逗号分隔状态值）
+                    </label>
+                    <input
+                      type="text"
+                      value={s.transitions?.join(",") || ""}
+                      onChange={(e) =>
+                        updateStatus(
+                          index,
+                          "transitions",
+                          e.target.value ? e.target.value.split(",").map((v) => v.trim()) : []
+                        )
+                      }
+                      disabled={!canManage}
+                      placeholder="例如：in_progress,done"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-60"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 保存按钮 */}
+          <div className="flex justify-end">
+            <button
+              onClick={handleSave}
+              disabled={saving || !canManage}
+              className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {saving ? "保存中..." : "保存配置"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

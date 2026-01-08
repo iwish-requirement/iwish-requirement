@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Upload, Sparkles } from 'lucide-react';
-import { Department, FieldDefinition, Priority } from '../../../../types';
+import { Department, FieldDefinition, Priority, type DepartmentWorkflowConfig } from '../../../../types';
 import { getSupabaseClient } from '../../../../lib/supabase';
 import { authorizedFetch } from '../../../../lib/authFetch';
 
@@ -15,12 +15,13 @@ export default function NewDemandPage() {
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState<Priority>(Priority.MEDIUM);
+  const [priority, setPriority] = useState<string>('');
   const [dueDate, setDueDate] = useState('');
   const [creatorEmail, setCreatorEmail] = useState('');
   const [assigneeEmail, setAssigneeEmail] = useState('');
   const [deptUsers, setDeptUsers] = useState<{ id: number; name: string | null; email: string | null }[]>([]);
   const [deptUsersLoading, setDeptUsersLoading] = useState(false);
+  const [workflowConfig, setWorkflowConfig] = useState<DepartmentWorkflowConfig | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -117,6 +118,45 @@ export default function NewDemandPage() {
 
     loadFieldsAndUsers();
   }, [selectedDeptId]);
+
+  useEffect(() => {
+    if (!selectedDeptId) {
+      setWorkflowConfig(null);
+      return;
+    }
+
+    const loadWorkflowConfig = async () => {
+      try {
+        const res = await authorizedFetch(
+          `/api/departments/${encodeURIComponent(selectedDeptId)}/workflow-config`
+        );
+        if (!res.ok) {
+          console.error('load workflow config for new demand error', await res.text());
+          setWorkflowConfig(null);
+          return;
+        }
+        const json = await res.json();
+        const cfg = (json.config || null) as DepartmentWorkflowConfig | null;
+        if (!cfg || !Array.isArray(cfg.priorities) || !Array.isArray(cfg.statuses)) {
+          setWorkflowConfig(null);
+          return;
+        }
+        const sorted: DepartmentWorkflowConfig = {
+          priorities: [...cfg.priorities].sort((a, b) => a.order - b.order),
+          statuses: [...cfg.statuses].sort((a, b) => a.order - b.order),
+        };
+        setWorkflowConfig(sorted);
+        if (!priority && sorted.priorities.length > 0) {
+          setPriority(sorted.priorities[0].value);
+        }
+      } catch (e) {
+        console.error('load workflow config for new demand error', e);
+        setWorkflowConfig(null);
+      }
+    };
+
+    loadWorkflowConfig();
+  }, [selectedDeptId, priority]);
 
   const handleDynamicChange = (id: string, value: any) => {
     setFormData(prev => ({ ...prev, [id]: value }));
@@ -252,15 +292,27 @@ export default function NewDemandPage() {
             
             <div>
               <label className="block text-base font-bold text-slate-700 mb-2">优先级</label>
-              <select 
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as Priority)}
+              <select
+                value={priority || ''}
+                onChange={(e) => setPriority(e.target.value)}
                 className="w-full px-4 py-3 text-base border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none shadow-sm bg-white transition-all"
               >
-                <option value={Priority.MEDIUM}>{Priority.MEDIUM}</option>
-                <option value={Priority.LOW}>{Priority.LOW}</option>
-                <option value={Priority.HIGH}>{Priority.HIGH}</option>
-                <option value={Priority.CRITICAL}>{Priority.CRITICAL}</option>
+                {workflowConfig && workflowConfig.priorities.length > 0 ? (
+                  <>
+                    {workflowConfig.priorities.map((p) => (
+                      <option key={p.value} value={p.value}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </>
+                ) : (
+                  <>
+                    <option value={Priority.MEDIUM}>{Priority.MEDIUM}</option>
+                    <option value={Priority.LOW}>{Priority.LOW}</option>
+                    <option value={Priority.HIGH}>{Priority.HIGH}</option>
+                    <option value={Priority.CRITICAL}>{Priority.CRITICAL}</option>
+                  </>
+                )}
               </select>
             </div>
           </div>

@@ -46,8 +46,14 @@ async function loadDbPermissionsForUser(userId: number): Promise<PermissionKey[]
 
       const mapped: string[] = (() => {
         if (key === "settings.manage") {
-          return ["settings.global.view", "settings.global.manage"];
+          return [
+            "settings.global.view",
+            "settings.global.manage",
+            "settings.workflow.view",
+            "settings.workflow.manage",
+          ];
         }
+
         if (key === "settings.access_shell") {
           return ["settings.access_shell"];
         }

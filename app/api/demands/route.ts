@@ -61,13 +61,14 @@ function toDbStatus(status: DemandStatus | undefined | null): string | undefined
   }
 }
 
-function normalizePriority(raw: any): Priority {
+function normalizePriority(raw: any): string {
   const value = (raw ?? '').toString();
-  if (value.includes('紧急')) return Priority.CRITICAL;
-  if (value.includes('高')) return Priority.HIGH;
-  if (value.includes('中')) return Priority.MEDIUM;
-  if (value.includes('低')) return Priority.LOW;
-  return Priority.MEDIUM;
+  // 向后兼容：如果是旧的中文格式，返回文本；否则直接返回配置值
+  if (value.includes('紧急')) return '紧急';
+  if (value.includes('高')) return '高';
+  if (value.includes('中')) return '中';
+  if (value.includes('低')) return '低';
+  return value || '中';
 }
 
 function mapRowToDemand(row: any): Demand {
@@ -75,7 +76,9 @@ function mapRowToDemand(row: any): Demand {
 
   const code: string = fields.code || `REQ-${String(row.id ?? "").toString().padStart(4, "0")}`;
   const description: string = fields.description || "";
-  const priority: Priority = normalizePriority(fields.priority);
+  // Priority 现在从数据库 priority 字段读取,如果为空则从 fields 读取
+  const priorityFromDb = (row.priority as string | null) || fields.priority || "";
+  const priority: Priority = normalizePriority(priorityFromDb) as Priority;
   const dueDate: string = fields.dueDate || "";
   const departmentId: string =
     row.department_id !== undefined && row.department_id !== null
@@ -90,6 +93,9 @@ function mapRowToDemand(row: any): Demand {
     ? new Date(row.created_at as string).toISOString().slice(0, 10)
     : "";
 
+  // Status 直接从数据库读取,不再映射
+  const status = (row.status as string) || "pending";
+
   return {
     id: code,
     title: row.title as string,
@@ -97,7 +103,7 @@ function mapRowToDemand(row: any): Demand {
     departmentId,
     creatorId,
     assigneeId,
-    status: mapStatus(row.status as string | null),
+    status: status as DemandStatus,
     priority,
     createdAt,
     dueDate,
@@ -118,6 +124,7 @@ export async function GET(req: NextRequest) {
 
     const url = new URL(req.url);
     const statusParam = url.searchParams.get("status");
+    const priorityParam = url.searchParams.get("priority");
     const departmentIdParam = url.searchParams.get("departmentId");
     const creatorCode = url.searchParams.get("creatorCode");
     const creatorUserIdParam = url.searchParams.get("creatorUserId");
@@ -147,11 +154,14 @@ export async function GET(req: NextRequest) {
       .select("*", { count: "exact" })
       .order("created_at", { ascending: false });
 
+    // 状态筛选：直接使用数据库状态值
     if (statusParam) {
-      const dbStatus = toDbStatus(statusParam as DemandStatus);
-      if (dbStatus) {
-        query = query.eq("status", dbStatus);
-      }
+      query = query.eq("status", statusParam);
+    }
+
+    // 优先级筛选：直接使用数据库优先级值
+    if (priorityParam) {
+      query = query.eq("priority", priorityParam);
     }
 
     if (departmentIdParam) {
@@ -438,7 +448,7 @@ export async function POST(req: NextRequest) {
     const fields = {
       code,
       description,
-      priority,
+      // 不再在 fields 中存储 priority,改为数据库字段
       dueDate,
       departmentKey: departmentKeyForFields || undefined,
       creatorCode,
@@ -455,6 +465,7 @@ export async function POST(req: NextRequest) {
         assignee_id: assigneeUser.id,
         title,
         status: "pending",
+        priority: priority as string, // 支持自定义优先级
         field_template_id: null,
         fields,
       })
