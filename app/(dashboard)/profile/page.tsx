@@ -92,6 +92,42 @@ export default function ProfilePage() {
           const text = await bindRes.text();
           console.error("[profile] load wecom binding error", text);
         }
+
+        // 处理企微绑定回调结果
+        if (typeof window !== "undefined") {
+          const params = new URLSearchParams(window.location.search);
+          const wecomBind = params.get("wecomBind");
+          const wecomBindError = params.get("wecomBindError");
+
+          if (wecomBind === "success") {
+            if (!cancelled) {
+              setSuccess("企业微信绑定成功！");
+              // 重新加载绑定信息
+              const refreshRes = await authorizedFetch("/api/wecom/bind");
+              if (refreshRes.ok) {
+                const refreshJson = await refreshRes.json();
+                const current = (refreshJson.wecomUserId as string | null) ?? "";
+                setWecomUserId(current);
+                setInitialWecomUserId(current);
+              }
+            }
+            // 清理 URL 参数
+            window.history.replaceState({}, "", "/profile");
+          } else if (wecomBindError) {
+            if (!cancelled) {
+              const errorMessages: Record<string, string> = {
+                missing_code: "企微授权失败：缺少授权码",
+                config: "企微配置异常，请联系管理员",
+                token: "获取企微访问令牌失败",
+                userinfo: "获取企微用户信息失败",
+                db: "保存绑定信息失败，请稍后重试",
+              };
+              setError(errorMessages[wecomBindError] || "企微绑定失败，请稍后重试");
+            }
+            // 清理 URL 参数
+            window.history.replaceState({}, "", "/profile");
+          }
+        }
       } catch (e) {
         console.error("[profile] load profile error", e);
         if (!cancelled) {

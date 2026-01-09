@@ -32,6 +32,16 @@ export default function LoginPage() {
     };
 
     loadSettings();
+
+    // 处理 URL 参数中的提示信息
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const message = params.get("message");
+      
+      if (message === "wecom_auth_expired") {
+        setErrorMessage("企微绑定会话已过期，请重新登录后再进行绑定");
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -72,6 +82,16 @@ export default function LoginPage() {
         });
       } catch (syncError) {
         console.error('sync user error', syncError);
+      }
+
+      // 检查是否有重定向参数
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const redirect = params.get("redirect");
+        if (redirect && redirect.startsWith("/")) {
+          router.push(redirect);
+          return;
+        }
       }
 
       router.push('/');

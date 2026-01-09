@@ -48,21 +48,29 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const code = searchParams.get("code");
 
+  console.log("[api/wecom/oauth-callback] 开始处理回调请求");
+
   if (!code) {
     console.error("[api/wecom/oauth-callback] missing code in query");
     return NextResponse.redirect(new URL("/profile?wecomBindError=missing_code", req.url));
   }
 
+  console.log("[api/wecom/oauth-callback] 获取到 code，开始验证用户登录状态");
+
   const authResult = await getBusinessUserFromRequest(req);
   if (authResult.errorResponse) {
-    return authResult.errorResponse;
+    console.error("[api/wecom/oauth-callback] 用户未登录或登录已过期");
+    // 用户未登录，重定向到登录页面，并带上提示信息
+    return NextResponse.redirect(new URL("/login?redirect=/profile&message=wecom_auth_expired", req.url));
   }
   const activeError = ensureActiveUser(authResult.user);
   if (activeError) {
-    return activeError;
+    console.error("[api/wecom/oauth-callback] 用户账号状态异常");
+    return NextResponse.redirect(new URL("/profile?wecomBindError=account_inactive", req.url));
   }
 
   const userId = authResult.user!.id;
+  console.log(`[api/wecom/oauth-callback] 用户验证成功，userId: ${userId}`);
 
   const corpId = process.env.WECOM_CORP_ID;
   const corpSecret = process.env.WECOM_APP_SECRET;
@@ -72,15 +80,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/profile?wecomBindError=config", req.url));
   }
 
+  console.log("[api/wecom/oauth-callback] 开始获取 access_token");
   const accessToken = await fetchAccessToken(corpId, corpSecret);
   if (!accessToken) {
+    console.error("[api/wecom/oauth-callback] 获取 access_token 失败");
     return NextResponse.redirect(new URL("/profile?wecomBindError=token", req.url));
   }
 
+  console.log("[api/wecom/oauth-callback] access_token 获取成功，开始获取企微用户信息");
   const wecomUserId = await fetchUserId(accessToken, code);
   if (!wecomUserId) {
+    console.error("[api/wecom/oauth-callback] 获取企微用户信息失败");
     return NextResponse.redirect(new URL("/profile?wecomBindError=userinfo", req.url));
   }
+
+  console.log(`[api/wecom/oauth-callback] 企微用户信息获取成功，wecomUserId: ${wecomUserId}`);
 
   const nowIso = new Date().toISOString();
   const { error } = await supabaseAdmin
@@ -93,5 +107,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/profile?wecomBindError=db", req.url));
   }
 
+  console.log(`[api/wecom/oauth-callback] 企微绑定成功，userId: ${userId}, wecomUserId: ${wecomUserId}`);
   return NextResponse.redirect(new URL("/profile?wecomBind=success", req.url));
 }
