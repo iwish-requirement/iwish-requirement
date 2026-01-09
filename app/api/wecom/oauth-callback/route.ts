@@ -9,18 +9,29 @@ async function fetchAccessToken(corpId: string, corpSecret: string) {
   tokenUrl.searchParams.set("corpid", corpId);
   tokenUrl.searchParams.set("corpsecret", corpSecret);
 
+  console.log(`[api/wecom/oauth-callback] 请求企微 gettoken API, corpid: ${corpId.substring(0, 8)}...`);
+
   const res = await fetch(tokenUrl.toString());
   if (!res.ok) {
-    console.error("[api/wecom/oauth-callback] gettoken error", await res.text());
+    const text = await res.text();
+    console.error(`[api/wecom/oauth-callback] gettoken HTTP error: ${res.status} ${res.statusText}`, text);
     return null;
   }
 
   const json = (await res.json()) as { access_token?: string; errcode?: number; errmsg?: string };
-  if (!json.access_token) {
-    console.error("[api/wecom/oauth-callback] gettoken response invalid", json);
+  console.log("[api/wecom/oauth-callback] gettoken response:", JSON.stringify(json));
+
+  if (json.errcode && json.errcode !== 0) {
+    console.error(`[api/wecom/oauth-callback] gettoken API error: errcode=${json.errcode}, errmsg=${json.errmsg}`);
     return null;
   }
 
+  if (!json.access_token) {
+    console.error("[api/wecom/oauth-callback] gettoken response missing access_token", json);
+    return null;
+  }
+
+  console.log("[api/wecom/oauth-callback] gettoken success");
   return json.access_token as string;
 }
 
@@ -29,18 +40,29 @@ async function fetchUserId(accessToken: string, code: string) {
   url.searchParams.set("access_token", accessToken);
   url.searchParams.set("code", code);
 
+  console.log(`[api/wecom/oauth-callback] 请求企微 getuserinfo API, code: ${code.substring(0, 12)}...`);
+
   const res = await fetch(url.toString());
   if (!res.ok) {
-    console.error("[api/wecom/oauth-callback] getuserinfo error", await res.text());
+    const text = await res.text();
+    console.error(`[api/wecom/oauth-callback] getuserinfo HTTP error: ${res.status} ${res.statusText}`, text);
     return null;
   }
 
   const json = (await res.json()) as { UserId?: string; errcode?: number; errmsg?: string };
-  if (!json.UserId) {
-    console.error("[api/wecom/oauth-callback] getuserinfo response invalid", json);
+  console.log("[api/wecom/oauth-callback] getuserinfo response:", JSON.stringify(json));
+
+  if (json.errcode && json.errcode !== 0) {
+    console.error(`[api/wecom/oauth-callback] getuserinfo API error: errcode=${json.errcode}, errmsg=${json.errmsg}`);
     return null;
   }
 
+  if (!json.UserId) {
+    console.error("[api/wecom/oauth-callback] getuserinfo response missing UserId", json);
+    return null;
+  }
+
+  console.log(`[api/wecom/oauth-callback] getuserinfo success, UserId: ${json.UserId}`);
   return json.UserId as string;
 }
 
