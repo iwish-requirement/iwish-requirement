@@ -47,6 +47,7 @@ async function fetchUserId(accessToken: string, code: string) {
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const code = searchParams.get("code");
+  const state = searchParams.get("state");
 
   console.log("[api/wecom/oauth-callback] 开始处理回调请求");
 
@@ -55,22 +56,56 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/profile?wecomBindError=missing_code", req.url));
   }
 
-  console.log("[api/wecom/oauth-callback] 获取到 code，开始验证用户登录状态");
-
-  const authResult = await getBusinessUserFromRequest(req);
-  if (authResult.errorResponse) {
-    console.error("[api/wecom/oauth-callback] 用户未登录或登录已过期");
-    // 用户未登录，重定向到登录页面，并带上提示信息
-    return NextResponse.redirect(new URL("/login?redirect=/profile&message=wecom_auth_expired", req.url));
-  }
-  const activeError = ensureActiveUser(authResult.user);
-  if (activeError) {
-    console.error("[api/wecom/oauth-callback] 用户账号状态异常");
-    return NextResponse.redirect(new URL("/profile?wecomBindError=account_inactive", req.url));
+  if (!state || !state.trim()) {
+    console.error("[api/wecom/oauth-callback] missing state (token) in query");
+    return NextResponse.redirect(new URL("/profile?wecomBindError=missing_token", req.url));
   }
 
-  const userId = authResult.user!.id;
-  console.log(`[api/wecom/oauth-callback] 用户验证成功，userId: ${userId}`);
+  const token = state.trim();
+  console.log(`[api/wecom/oauth-callback] 获取到 token: ${token.substring(0, 8)}...`);
+
+  // 验证 token
+  let userId: number;
+  try {
+    const { data: tokenData, error: tokenError } = await supabaseAdmin
+      .from("wecom_bind_tokens")
+      .select("user_id, expires_at, used")
+      .eq("token", token)
+      .maybeSingle();
+
+    if (tokenError) {
+      console.error("[api/wecom/oauth-callback] query token error", tokenError);
+      return NextResponse.redirect(new URL("/profile?wecomBindError=invalid_token", req.url));
+    }
+
+    if (!tokenData) {
+      console.error("[api/wecom/oauth-callback] token not found");
+      return NextResponse.redirect(new URL("/profile?wecomBindError=invalid_token", req.url));
+    }
+
+    if (tokenData.used) {
+      console.error("[api/wecom/oauth-callback] token already used");
+      return NextResponse.redirect(new URL("/profile?wecomBindError=token_used", req.url));
+    }
+
+    const expiresAt = new Date(tokenData.expires_at as string);
+    if (expiresAt < new Date()) {
+      console.error("[api/wecom/oauth-callback] token expired");
+      return NextResponse.redirect(new URL("/profile?wecomBindError=token_expired", req.url));
+    }
+
+    userId = tokenData.user_id as number;
+    console.log(`[api/wecom/oauth-callback] token 验证成功，userId: ${userId}`);
+
+    // 标记 token 为已使用
+    await supabaseAdmin
+      .from("wecom_bind_tokens")
+      .update({ used: true })
+      .eq("token", token);
+  } catch (e) {
+    console.error("[api/wecom/oauth-callback] token validation error", e);
+    return NextResponse.redirect(new URL("/profile?wecomBindError=validation_error", req.url));
+  }
 
   const corpId = process.env.WECOM_CORP_ID;
   const corpSecret = process.env.WECOM_APP_SECRET;

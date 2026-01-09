@@ -117,6 +117,11 @@ export default function ProfilePage() {
             if (!cancelled) {
               const errorMessages: Record<string, string> = {
                 missing_code: "企微授权失败：缺少授权码",
+                missing_token: "企微授权失败：缺少绑定凭证",
+                invalid_token: "企微授权失败：绑定凭证无效",
+                token_used: "企微授权失败：绑定凭证已使用",
+                token_expired: "企微授权失败：绑定凭证已过期，请重新扫码",
+                validation_error: "企微授权失败：验证异常",
                 config: "企微配置异常，请联系管理员",
                 token: "获取企微访问令牌失败",
                 userinfo: "获取企微用户信息失败",
