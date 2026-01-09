@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
-import { ensureScoreTasksForUserPeriod } from "../my-tasks/route";
+import { ensureScoreTasksForUserPeriod } from "../../../../../lib/scoreTasksUtils";
 
 export const runtime = "edge";
 

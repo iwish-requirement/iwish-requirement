@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest, ensureActiveUser } from "../../../../lib/serverAuth";
+import { ensureScoreTasksForUserPeriod } from "../../../../lib/scoreTasksUtils";
 
 export const runtime = "edge";
 
@@ -28,18 +29,6 @@ type DepartmentRow = {
   name: string | null;
 };
 
-type DemandRow = {
-  id: number;
-  creator_id: number | null;
-  assignee_id: number | null;
-  department_id: number | null;
-};
-
-type TemplateRow = {
-  id: number;
-  department_id: number;
-};
-
 type ScorePeriodConfigRow = {
   period: string;
   score_window_start: string | null;
@@ -48,7 +37,6 @@ type ScorePeriodConfigRow = {
 };
 
 type NormalizedStatus = "pending" | "completed" | "missed" | "reminded";
-
 
 type ScoreWindowPhase = "not_started" | "open" | "closed" | "unknown";
 
@@ -168,261 +156,12 @@ async function getCurrentPeriodFromConfigOrDefault(periodFromQuery: string | nul
   };
 }
 
-
-
-
 function normalizeStatus(raw: string | null | undefined): NormalizedStatus {
   const value = (raw ?? "").toString().toLowerCase();
   if (value === "completed") return "completed";
   if (value === "missed") return "missed";
   if (value === "reminded") return "reminded";
   return "pending";
-}
-
-function getPeriodRange(period: string): { from: string; to: string } {
-  const match = /^(\d{4})-(\d{2})$/.exec(period.trim());
-  if (!match) {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = `${now.getMonth() + 1}`.padStart(2, "0");
-    const from = `${year}-${month}-01T00:00:00.000Z`;
-    const nextMonth = new Date(Date.UTC(year, now.getMonth() + 1, 1));
-    const to = nextMonth.toISOString();
-    return { from, to };
-  }
-
-  const year = Number.parseInt(match[1], 10);
-  const monthIndex = Number.parseInt(match[2], 10) - 1;
-  const fromDate = new Date(Date.UTC(year, monthIndex, 1));
-  const toDate = new Date(Date.UTC(year, monthIndex + 1, 1));
-  return {
-    from: fromDate.toISOString(),
-    to: toDate.toISOString(),
-  };
-}
-
-export async function ensureScoreTasksForUserPeriod(userId: number, creatorCode: string | null, period: string): Promise<void> {
-  try {
-    const { from, to } = getPeriodRange(period);
-
-    const { data: demandsByCreator, error: demandsByCreatorError } = await supabaseAdmin
-      .from("demands")
-      .select("id, creator_id, assignee_id, department_id")
-      .eq("creator_id", userId)
-      .not("assignee_id", "is", null)
-      .gte("created_at", from)
-      .lt("created_at", to)
-      .returns<DemandRow[]>();
-
-    if (demandsByCreatorError) {
-      console.error("[api/scores/my-tasks] load demands by creator for tasks error", demandsByCreatorError);
-      return;
-    }
-
-    let rows: DemandRow[] = demandsByCreator ?? [];
-
-    if (creatorCode) {
-      const { data: demandsByCode, error: demandsByCodeError } = await supabaseAdmin
-        .from("demands")
-        .select("id, creator_id, assignee_id, department_id")
-        .eq("fields->>creatorCode", creatorCode)
-        .not("assignee_id", "is", null)
-        .gte("created_at", from)
-        .lt("created_at", to)
-        .returns<DemandRow[]>();
-
-      if (demandsByCodeError) {
-        console.error("[api/scores/my-tasks] load demands by creatorCode for tasks error", demandsByCodeError);
-      } else if (demandsByCode && demandsByCode.length) {
-        const merged = new Map<number, DemandRow>();
-        for (const row of rows) {
-          if (typeof row.id === "number") {
-            merged.set(row.id, row);
-          }
-        }
-        for (const row of demandsByCode) {
-          if (typeof row.id === "number") {
-            merged.set(row.id, row);
-          }
-        }
-        rows = Array.from(merged.values());
-      }
-    }
-
-    if (!rows.length) {
-      return;
-    }
-
-    type ComboKey = string;
-    type ComboValue = { scorerId: number; targetUserId: number; departmentId: number };
-
-    const combos = new Map<ComboKey, ComboValue>();
-
-    for (const row of rows) {
-      if (!row.creator_id || !row.assignee_id || !row.department_id) {
-        continue;
-      }
-
-      const key = `${row.assignee_id}-${row.department_id}`;
-      if (!combos.has(key)) {
-        combos.set(key, {
-          scorerId: row.creator_id,
-          targetUserId: row.assignee_id,
-          departmentId: row.department_id,
-        });
-      }
-    }
-
-    if (!combos.size) {
-      return;
-    }
-
-    const departmentIds = Array.from(new Set(Array.from(combos.values()).map((c) => c.departmentId)));
-
-    const { data: templates, error: templatesError } = await supabaseAdmin
-      .from("score_templates")
-      .select("id, department_id")
-      .in("department_id", departmentIds)
-      .eq("is_active", true)
-      .returns<TemplateRow[]>();
-
-    if (templatesError) {
-      console.error("[api/scores/my-tasks] load templates for tasks error", templatesError);
-      return;
-    }
-
-    const templateMap = new Map<number, number>();
-    for (const tpl of templates ?? []) {
-      if (typeof tpl.department_id === "number" && typeof tpl.id === "number") {
-        if (!templateMap.has(tpl.department_id)) {
-          templateMap.set(tpl.department_id, tpl.id);
-        }
-      }
-    }
-
-    if (!templateMap.size) {
-      return;
-    }
-
-    const comboList: ComboValue[] = [];
-    for (const combo of combos.values()) {
-      if (templateMap.has(combo.departmentId)) {
-        comboList.push(combo);
-      }
-    }
-
-    if (!comboList.length) {
-      return;
-    }
-
-    const targetUserIds = Array.from(new Set(comboList.map((c) => c.targetUserId)));
-
-    const { data: existingTasks, error: existingError } = await supabaseAdmin
-      .from("score_tasks")
-      .select("scorer_id, target_user_id, department_id")
-      .eq("scorer_id", userId)
-      .eq("period", period)
-      .in("target_user_id", targetUserIds)
-      .returns<Pick<RawScoreTaskRow, "scorer_id" | "target_user_id" | "department_id">[]>();
-
-    if (existingError) {
-      console.error("[api/scores/my-tasks] load existing score_tasks error", existingError);
-      return;
-    }
-
-    const existingSet = new Set<string>();
-    for (const row of existingTasks ?? []) {
-      if (!row.scorer_id || !row.target_user_id || !row.department_id) {
-        continue;
-      }
-      existingSet.add(`${row.scorer_id}-${row.target_user_id}-${row.department_id}`);
-    }
-
-    const toInsert: {
-      period: string;
-      scorer_id: number;
-      target_user_id: number;
-      department_id: number;
-      template_id: number;
-      status: string;
-    }[] = [];
-
-    for (const combo of comboList) {
-      const key = `${combo.scorerId}-${combo.targetUserId}-${combo.departmentId}`;
-      if (existingSet.has(key)) {
-        continue;
-      }
-      const templateId = templateMap.get(combo.departmentId);
-      if (!templateId) {
-        continue;
-      }
-      toInsert.push({
-        period,
-        scorer_id: combo.scorerId,
-        target_user_id: combo.targetUserId,
-        department_id: combo.departmentId,
-        template_id: templateId,
-        status: "pending",
-      });
-    }
-
-    if (!toInsert.length) {
-      return;
-    }
-
-    const { error: insertError } = await supabaseAdmin
-      .from("score_tasks")
-      .insert(toInsert);
-
-    if (insertError) {
-      console.error("[api/scores/my-tasks] insert score_tasks error", insertError);
-      return;
-    }
-
-    if (toInsert.length > 0) {
-      const currentConfig = await getCurrentPeriodFromConfigOrDefault(period);
-      if (currentConfig.phase === "open") {
-        import("../../../../lib/wecomApp").then((mod) => {
-          mod
-            .loadWecomUserIdsForDemandParticipants(userId, null)
-            .then((toUserIds) => {
-              const uniqueIds = toUserIds.filter((v, idx, arr) => v && arr.indexOf(v) === idx);
-              if (!uniqueIds.length) {
-                return;
-              }
-
-              const baseUrlEnv =
-                process.env.APP_PUBLIC_URL ||
-                process.env.NEXT_PUBLIC_APP_URL ||
-                process.env.VITE_PUBLIC_URL ||
-                "";
-              const baseUrl = baseUrlEnv.replace(/\/+$/, "");
-              const link = baseUrl
-                ? `${baseUrl}/scoring?period=${encodeURIComponent(currentConfig.period)}`
-                : "";
-
-              let content = `你有 ${toInsert.length} 条新的评分任务需要完成`;
-              content += `\n评分周期：${currentConfig.period}`;
-
-              if (link) {
-                content += `\n前往评分：${link}`;
-              }
-
-              mod
-                .sendWecomAppTextMessage(uniqueIds, content)
-                .catch((e: any) => {
-                  console.error("[api/scores/my-tasks] send wecom app message error", e);
-                });
-            })
-            .catch((e: any) => {
-              console.error("[api/scores/my-tasks] load wecom_user_id for scorer error", e);
-            });
-        });
-      }
-    }
-  } catch (error) {
-    console.error("[api/scores/my-tasks] ensureScoreTasksForUserPeriod error", error);
-  }
 }
 
 
