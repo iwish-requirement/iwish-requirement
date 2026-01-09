@@ -15,7 +15,9 @@ interface WebhookSubscriptionRow {
   id: number;
   url: string;
   secret: string | null;
+  provider?: string | null;
 }
+
 
 interface WebhookEventRow {
   id: number;
@@ -86,9 +88,10 @@ export async function enqueueAndDispatchWebhook<T>(
 
   const { data: subs, error: subsError } = await supabaseAdmin
     .from("webhook_subscriptions")
-    .select("id, url, secret, enabled")
+    .select("id, url, secret, provider, enabled")
     .eq("enabled", true)
     .eq("event_type", eventType);
+
 
   if (subsError) {
     console.error("[webhooks] load subscriptions error", subsError);
@@ -141,9 +144,10 @@ export async function dispatchSingleEvent(eventId: number): Promise<void> {
 
   const { data: subRow, error: subError } = await supabaseAdmin
     .from("webhook_subscriptions")
-    .select("id, url, secret, enabled")
+    .select("id, url, secret, provider, enabled")
     .eq("id", event.subscription_id)
     .maybeSingle();
+
 
   if (subError || !subRow) {
     if (subError) {
@@ -176,8 +180,14 @@ export async function dispatchSingleEvent(eventId: number): Promise<void> {
   }
 
   const timestamp = new Date().toISOString();
-  const body = JSON.stringify(event.payload);
+
+  const envelope = event.payload as WebhookPayloadEnvelope<any>;
+
+  const body = JSON.stringify(envelope);
+
   const signature = await signBody(sub.secret, body, timestamp);
+
+
 
 
   const headers: Record<string, string> = {

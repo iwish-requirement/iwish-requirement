@@ -201,7 +201,7 @@ function getPeriodRange(period: string): { from: string; to: string } {
   };
 }
 
-async function ensureScoreTasksForUserPeriod(userId: number, creatorCode: string | null, period: string): Promise<void> {
+export async function ensureScoreTasksForUserPeriod(userId: number, creatorCode: string | null, period: string): Promise<void> {
   try {
     const { from, to } = getPeriodRange(period);
 
@@ -376,11 +376,55 @@ async function ensureScoreTasksForUserPeriod(userId: number, creatorCode: string
 
     if (insertError) {
       console.error("[api/scores/my-tasks] insert score_tasks error", insertError);
+      return;
+    }
+
+    if (toInsert.length > 0) {
+      const currentConfig = await getCurrentPeriodFromConfigOrDefault(period);
+      if (currentConfig.phase === "open") {
+        import("../../../../lib/wecomApp").then((mod) => {
+          mod
+            .loadWecomUserIdsForDemandParticipants(userId, null)
+            .then((toUserIds) => {
+              const uniqueIds = toUserIds.filter((v, idx, arr) => v && arr.indexOf(v) === idx);
+              if (!uniqueIds.length) {
+                return;
+              }
+
+              const baseUrlEnv =
+                process.env.APP_PUBLIC_URL ||
+                process.env.NEXT_PUBLIC_APP_URL ||
+                process.env.VITE_PUBLIC_URL ||
+                "";
+              const baseUrl = baseUrlEnv.replace(/\/+$/, "");
+              const link = baseUrl
+                ? `${baseUrl}/scoring?period=${encodeURIComponent(currentConfig.period)}`
+                : "";
+
+              let content = `你有 ${toInsert.length} 条新的评分任务需要完成`;
+              content += `\n评分周期：${currentConfig.period}`;
+
+              if (link) {
+                content += `\n前往评分：${link}`;
+              }
+
+              mod
+                .sendWecomAppTextMessage(uniqueIds, content)
+                .catch((e: any) => {
+                  console.error("[api/scores/my-tasks] send wecom app message error", e);
+                });
+            })
+            .catch((e: any) => {
+              console.error("[api/scores/my-tasks] load wecom_user_id for scorer error", e);
+            });
+        });
+      }
     }
   } catch (error) {
     console.error("[api/scores/my-tasks] ensureScoreTasksForUserPeriod error", error);
   }
 }
+
 
 export async function GET(req: NextRequest) {
   try {

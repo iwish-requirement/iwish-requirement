@@ -394,14 +394,15 @@ export async function POST(req: NextRequest) {
             .maybeSingle(),
       supabaseAdmin
         .from("users")
-        .select("id, department_id")
+        .select("id, department_id, wecom_user_id")
         .eq("email", creatorEmail)
         .maybeSingle(),
       supabaseAdmin
         .from("users")
-        .select("id, department_id")
+        .select("id, department_id, wecom_user_id")
         .eq("email", assigneeEmail)
         .maybeSingle(),
+
     ]);
 
     if (deptError || !dept) {
@@ -496,7 +497,42 @@ export async function POST(req: NextRequest) {
         });
     });
 
+    // 异步给执行人发送企业微信应用消息（仅通知 assignee）
+    import("../../../lib/wecomApp").then((mod) => {
+      const assigneeWecomId = ((assigneeUser as any).wecom_user_id || "").toString().trim();
+      if (!assigneeWecomId) {
+        return;
+      }
+
+      const baseUrlEnv =
+        process.env.APP_PUBLIC_URL ||
+        process.env.NEXT_PUBLIC_APP_URL ||
+        process.env.VITE_PUBLIC_URL ||
+        "";
+      const baseUrl = baseUrlEnv.replace(/\/+$/, "");
+      const link = baseUrl && demand.id ? `${baseUrl}/demands/${encodeURIComponent(demand.id)}` : "";
+
+      let content = `你有一条新的需求需要处理：${demand.title}`;
+      if (demand.priority) {
+        content += `\n优先级：${demand.priority}`;
+      }
+      if (demand.status) {
+        content += `\n当前状态：${demand.status}`;
+      }
+      if (link) {
+        content += `\n查看详情：${link}`;
+      }
+
+      mod
+        .sendWecomAppTextMessage([assigneeWecomId], content)
+        .catch((e: any) => {
+          console.error("[api/demands] send wecom app message error", e);
+        });
+    });
+
+
     return NextResponse.json({ demand }, { status: 201 });
+
 
   } catch (error: any) {
     console.error("[api/demands] create error", error);

@@ -256,6 +256,8 @@ export async function PATCH(
     }
 
     const updates: any = { fields };
+    const previousStatus = (existing.status as string) || "";
+
 
     if (title) {
       updates.title = title;
@@ -292,7 +294,73 @@ export async function PATCH(
     }
 
     const demand = mapRowToDemand(data);
+
+    if (status && status !== previousStatus) {
+      import("../../../../lib/webhooks").then((mod) => {
+        mod
+          .enqueueAndDispatchWebhook("demand.status_changed", {
+            demand,
+            departmentId: data.department_id as number | undefined,
+            fromStatus: previousStatus,
+            toStatus: status,
+          })
+          .catch((e) => {
+            console.error("[api/demands/:id] enqueue status_changed webhook error", e);
+          });
+      });
+
+      const normalizedStatus = (status || "").toString().toLowerCase();
+      const isTerminalStatus =
+        normalizedStatus === "done" ||
+        normalizedStatus === "closed" ||
+        normalizedStatus === "ignored";
+
+      const creatorId =
+        data.creator_id && typeof data.creator_id === "number"
+          ? (data.creator_id as number)
+          : null;
+
+      if (isTerminalStatus && creatorId) {
+        import("../../../../lib/wecomApp").then((mod) => {
+          mod
+            .loadWecomUserIdsForDemandParticipants(creatorId, null)
+            .then((toUserIds) => {
+              const uniqueIds = toUserIds.filter((v, idx, arr) => v && arr.indexOf(v) === idx);
+              if (!uniqueIds.length) {
+                return;
+              }
+
+              const baseUrlEnv =
+                process.env.APP_PUBLIC_URL ||
+                process.env.NEXT_PUBLIC_APP_URL ||
+                process.env.VITE_PUBLIC_URL ||
+                "";
+              const baseUrl = baseUrlEnv.replace(/\/+$/, "");
+              const link = baseUrl && demand.id ? `${baseUrl}/demands/${encodeURIComponent(demand.id)}` : "";
+
+              let content = `你提交的需求已处理完成：${demand.title}`;
+              content += `\n最终状态：${status}`;
+              if (link) {
+                content += `\n查看详情：${link}`;
+              }
+
+              mod
+                .sendWecomAppTextMessage(uniqueIds, content)
+                .catch((e: any) => {
+                  console.error("[api/demands/:id] send wecom app message error", e);
+                });
+            })
+            .catch((e: any) => {
+              console.error("[api/demands/:id] load wecom_user_id for creator error", e);
+            });
+        });
+      }
+    }
+
+
     return NextResponse.json({ demand });
+
+
   } catch (error: any) {
     console.error("[api/demands/:id] update error", error);
     return NextResponse.json(

@@ -464,7 +464,8 @@ const WebhookSettings: React.FC<Props> = ({ canManage }) => {
                 setEditing((prev) => ({ ...(prev || {}), provider: e.target.value }))
               }
               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              placeholder="例如：wecom_bot / internal / generic"
+              placeholder="例如：internal / generic"
+
             />
           </div>
           <div>
