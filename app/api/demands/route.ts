@@ -500,6 +500,7 @@ export async function POST(req: NextRequest) {
     // 异步给执行人发送企业微信应用消息（仅通知 assignee）
     import("../../../lib/wecomApp").then((mod) => {
       const assigneeWecomId = ((assigneeUser as any).wecom_user_id || "").toString().trim();
+      console.log("[api/demands] wecom message assigneeWecomId", assigneeWecomId);
       if (!assigneeWecomId) {
         return;
       }
@@ -523,12 +524,15 @@ export async function POST(req: NextRequest) {
         content += `\n查看详情：${link}`;
       }
 
+      console.log("[api/demands] wecom message content", content);
+
       mod
         .sendWecomAppTextMessage([assigneeWecomId], content)
         .catch((e: any) => {
           console.error("[api/demands] send wecom app message error", e);
         });
     });
+
 
 
     return NextResponse.json({ demand }, { status: 201 });
