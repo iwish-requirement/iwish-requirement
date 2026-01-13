@@ -4,66 +4,51 @@ import { getBusinessUserFromRequest, ensureActiveUser } from "../../../../lib/se
 
 export const runtime = "edge";
 
-async function fetchAccessToken(corpId: string, corpSecret: string) {
-  const tokenUrl = new URL("https://qyapi.weixin.qq.com/cgi-bin/gettoken");
-  tokenUrl.searchParams.set("corpid", corpId);
-  tokenUrl.searchParams.set("corpsecret", corpSecret);
+async function fetchUserIdFromProxy(code: string) {
+  const proxyUrl = process.env.WECOM_USERINFO_PROXY_URL;
+  const proxyToken = process.env.WECOM_USERINFO_PROXY_TOKEN;
 
-  console.log(`[api/wecom/oauth-callback] 请求企微 gettoken API, corpid: ${corpId.substring(0, 8)}...`);
-
-  const res = await fetch(tokenUrl.toString());
-  if (!res.ok) {
-    const text = await res.text();
-    console.error(`[api/wecom/oauth-callback] gettoken HTTP error: ${res.status} ${res.statusText}`, text);
-    return null;
+  if (!proxyUrl || !proxyToken) {
+    console.error("[api/wecom/oauth-callback] missing proxy url or token env");
+    return { ok: false as const, error: "config" as const };
   }
 
-  const json = (await res.json()) as { access_token?: string; errcode?: number; errmsg?: string };
-  console.log("[api/wecom/oauth-callback] gettoken response:", JSON.stringify(json));
-
-  if (json.errcode && json.errcode !== 0) {
-    console.error(`[api/wecom/oauth-callback] gettoken API error: errcode=${json.errcode}, errmsg=${json.errmsg}`);
-    return null;
-  }
-
-  if (!json.access_token) {
-    console.error("[api/wecom/oauth-callback] gettoken response missing access_token", json);
-    return null;
-  }
-
-  console.log("[api/wecom/oauth-callback] gettoken success");
-  return json.access_token as string;
-}
-
-async function fetchUserId(accessToken: string, code: string) {
-  const url = new URL("https://qyapi.weixin.qq.com/cgi-bin/user/getuserinfo");
-  url.searchParams.set("access_token", accessToken);
+  const url = new URL(proxyUrl);
   url.searchParams.set("code", code);
 
-  console.log(`[api/wecom/oauth-callback] 请求企微 getuserinfo API, code: ${code.substring(0, 12)}...`);
+  console.log("[api/wecom/oauth-callback] 请求企微用户信息代理", {
+    url: url.toString().substring(0, 200),
+  });
 
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), {
+    headers: {
+      "X-Internal-Token": proxyToken,
+    },
+  });
+
   if (!res.ok) {
     const text = await res.text();
-    console.error(`[api/wecom/oauth-callback] getuserinfo HTTP error: ${res.status} ${res.statusText}`, text);
-    return null;
+    console.error("[api/wecom/oauth-callback] proxy HTTP error", res.status, res.statusText, text);
+    return { ok: false as const, error: "userinfo" as const };
   }
 
-  const json = (await res.json()) as { UserId?: string; errcode?: number; errmsg?: string };
-  console.log("[api/wecom/oauth-callback] getuserinfo response:", JSON.stringify(json));
+  const json = (await res.json()) as
+    | { ok: true; userId: string }
+    | { ok: false; error: string; errcode?: number; errmsg?: string; detail?: string };
 
-  if (json.errcode && json.errcode !== 0) {
-    console.error(`[api/wecom/oauth-callback] getuserinfo API error: errcode=${json.errcode}, errmsg=${json.errmsg}`);
-    return null;
+  console.log("[api/wecom/oauth-callback] proxy response", JSON.stringify(json));
+
+  if (!json.ok) {
+    console.error("[api/wecom/oauth-callback] proxy returned error", json);
+    return { ok: false as const, error: "userinfo" as const };
   }
 
-  if (!json.UserId) {
-    console.error("[api/wecom/oauth-callback] getuserinfo response missing UserId", json);
-    return null;
+  if (!json.userId) {
+    console.error("[api/wecom/oauth-callback] proxy response missing userId", json);
+    return { ok: false as const, error: "userinfo" as const };
   }
 
-  console.log(`[api/wecom/oauth-callback] getuserinfo success, UserId: ${json.UserId}`);
-  return json.UserId as string;
+  return { ok: true as const, userId: json.userId };
 }
 
 export async function GET(req: NextRequest) {
@@ -129,28 +114,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/profile?wecomBindError=validation_error", req.url));
   }
 
-  const corpId = process.env.WECOM_CORP_ID;
-  const corpSecret = process.env.WECOM_APP_SECRET;
+  console.log("[api/wecom/oauth-callback] 开始通过代理获取企微用户信息");
+  const proxyResult = await fetchUserIdFromProxy(code);
 
-  if (!corpId || !corpSecret) {
-    console.error("[api/wecom/oauth-callback] missing corpId or app secret env");
-    return NextResponse.redirect(new URL("/profile?wecomBindError=config", req.url));
+  if (!proxyResult.ok) {
+    console.error("[api/wecom/oauth-callback] 通过代理获取企微用户信息失败", proxyResult);
+    return NextResponse.redirect(new URL(`/profile?wecomBindError=${proxyResult.error}`, req.url));
   }
 
-  console.log("[api/wecom/oauth-callback] 开始获取 access_token");
-  const accessToken = await fetchAccessToken(corpId, corpSecret);
-  if (!accessToken) {
-    console.error("[api/wecom/oauth-callback] 获取 access_token 失败");
-    return NextResponse.redirect(new URL("/profile?wecomBindError=token", req.url));
-  }
-
-  console.log("[api/wecom/oauth-callback] access_token 获取成功，开始获取企微用户信息");
-  const wecomUserId = await fetchUserId(accessToken, code);
-  if (!wecomUserId) {
-    console.error("[api/wecom/oauth-callback] 获取企微用户信息失败");
-    return NextResponse.redirect(new URL("/profile?wecomBindError=userinfo", req.url));
-  }
-
+  const wecomUserId = proxyResult.userId;
   console.log(`[api/wecom/oauth-callback] 企微用户信息获取成功，wecomUserId: ${wecomUserId}`);
 
   const nowIso = new Date().toISOString();
@@ -167,3 +139,4 @@ export async function GET(req: NextRequest) {
   console.log(`[api/wecom/oauth-callback] 企微绑定成功，userId: ${userId}, wecomUserId: ${wecomUserId}`);
   return NextResponse.redirect(new URL("/profile?wecomBind=success", req.url));
 }
+
