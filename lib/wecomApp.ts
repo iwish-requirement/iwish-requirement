@@ -38,48 +38,47 @@ export async function sendWecomAppTextMessage(toUserIds: string[], content: stri
     return;
   }
 
-  const agentId = process.env.WECOM_AGENT_ID;
-  if (!agentId) {
-    console.error("[wecomApp] missing WECOM_AGENT_ID env");
+  const proxyUrl = process.env.WECOM_MESSAGE_PROXY_URL;
+  const proxyToken = process.env.WECOM_MESSAGE_PROXY_TOKEN;
+
+  if (!proxyUrl || !proxyToken) {
+    console.error("[wecomApp] missing WECOM_MESSAGE_PROXY_URL or WECOM_MESSAGE_PROXY_TOKEN env");
     return;
   }
-
-  const accessToken = await fetchWecomAccessToken();
-  if (!accessToken) {
-    return;
-  }
-
-  const url = new URL("https://qyapi.weixin.qq.com/cgi-bin/message/send");
-  url.searchParams.set("access_token", accessToken);
 
   const body = {
-    touser: toUserIds.join("|"),
-    msgtype: "text",
-    agentid: Number(agentId),
-    text: {
-      content,
-    },
-    safe: 0,
+    toUserIds,
+    content,
   };
 
-  const res = await fetch(url.toString(), {
+  const res = await fetch(proxyUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "X-Internal-Token": proxyToken,
     },
     body: JSON.stringify(body),
   });
 
   if (!res.ok) {
-    console.error("[wecomApp] send message http error", await res.text());
+    const text = await res.text();
+    console.error("[wecomApp] message proxy http error", res.status, res.statusText, text);
     return;
   }
 
-  const json = (await res.json()) as { errcode?: number; errmsg?: string };
-  if (json.errcode && json.errcode !== 0) {
-    console.error("[wecomApp] send message biz error", json);
+  const json = (await res.json()) as {
+    ok?: boolean;
+    error?: string;
+    errcode?: number;
+    errmsg?: string;
+    detail?: string;
+  };
+
+  if (!json.ok) {
+    console.error("[wecomApp] message proxy biz error", json);
   }
 }
+
 
 export async function loadWecomUserIdsForDemandParticipants(
   creatorUserId: number | null | undefined,
