@@ -535,7 +535,14 @@ export async function POST(req: NextRequest) {
 
 
 
-    return NextResponse.json({ demand }, { status: 201 });
+    const wecomDebug = {
+      assigneeWecomId: ((assigneeUser as any).wecom_user_id || "").toString().trim(),
+      hasProxyUrl: !!process.env.WECOM_MESSAGE_PROXY_URL,
+      hasProxyToken: !!process.env.WECOM_MESSAGE_PROXY_TOKEN,
+    };
+
+    return NextResponse.json({ demand, wecomDebug }, { status: 201 });
+
 
 
   } catch (error: any) {
