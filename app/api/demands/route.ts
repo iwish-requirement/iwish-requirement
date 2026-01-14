@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest, ensureActiveUser } from "../../../lib/serverAuth";
-import { DemandStatus, Priority, Demand } from "../../../types";
+import { DemandStatus, Priority, Demand, DepartmentWorkflowConfig } from "../../../types";
 import { sendWecomAppTextMessage } from "../../../lib/wecomApp";
 
-
 export const runtime = "edge";
+
 
 const DEPT_SLUG_MAP: Record<string, string> = {
   d1: "tech",
@@ -111,6 +111,99 @@ function mapRowToDemand(row: any): Demand {
     dueDate,
     customFields: Object.keys(rest).length ? rest : undefined,
   };
+}
+
+async function loadWorkflowConfigForDepartment(
+  departmentId: number | null,
+): Promise<DepartmentWorkflowConfig | null> {
+  if (!departmentId || !Number.isFinite(departmentId)) {
+    return null;
+  }
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("departments")
+      .select("priority_config, status_config")
+      .eq("id", departmentId)
+      .maybeSingle();
+
+    if (error || !data) {
+      console.error("[api/demands] load workflow config for message error", error);
+      return null;
+    }
+
+    const cfg: DepartmentWorkflowConfig = {
+      priorities: ((data as any).priority_config as any[]) || [],
+      statuses: ((data as any).status_config as any[]) || [],
+    };
+
+    return cfg;
+  } catch (e) {
+    console.error("[api/demands] load workflow config for message unexpected error", e);
+    return null;
+  }
+}
+
+function resolvePriorityLabelForMessage(
+  rawPriority: string | undefined | null,
+  cfg: DepartmentWorkflowConfig | null,
+): string | null {
+  const value = (rawPriority ?? "").toString();
+  if (!value) return null;
+
+  if (cfg && cfg.priorities && cfg.priorities.length > 0) {
+    const found =
+      cfg.priorities.find((p) => p.value === value) ||
+      cfg.priorities.find((p) => p.label === value);
+    if (found) return found.label;
+  }
+
+  const lower = value.toLowerCase();
+  if (value.includes("紧急") || lower === "critical" || lower === "p0") return "紧急";
+  if (value.includes("高") || lower === "high" || lower === "p1") return "高";
+  if (value.includes("中") || lower === "medium" || lower === "p2") return "中";
+  if (value.includes("低") || lower === "low" || lower === "p3") return "低";
+
+  return value;
+}
+
+function resolveStatusLabelForMessage(
+  rawStatus: string | undefined | null,
+  cfg: DepartmentWorkflowConfig | null,
+): string | null {
+  const value = (rawStatus ?? "").toString();
+  if (!value) return null;
+
+  if (cfg && cfg.statuses && cfg.statuses.length > 0) {
+    const found =
+      cfg.statuses.find((s) => s.value === value) ||
+      cfg.statuses.find((s) => s.label === value);
+    if (found) return found.label;
+  }
+
+  switch (value) {
+    case "pending":
+      return DemandStatus.PENDING;
+    case "in_progress":
+      return DemandStatus.IN_PROGRESS;
+    case "review":
+      return DemandStatus.REVIEW;
+    case "done":
+      return DemandStatus.DONE;
+    case "closed":
+      return DemandStatus.CLOSED;
+    case "delayed":
+      return DemandStatus.DELAYED;
+    case "ignored":
+      return DemandStatus.IGNORED;
+    default: {
+      const all = Object.values(DemandStatus) as string[];
+      if (all.includes(value)) {
+        return value;
+      }
+      return value;
+    }
+  }
 }
 
 export async function GET(req: NextRequest) {
@@ -485,8 +578,13 @@ export async function POST(req: NextRequest) {
 
     const demand = mapRowToDemand(data);
 
+    const workflowConfigForMessage = await loadWorkflowConfigForDepartment(
+      departmentIdNumber || (dept.id as number),
+    );
+
     // 异步触发 demand.created 类型的 webhook 事件，失败不会影响主流程
     import("../../../lib/webhooks").then((mod) => {
+
       mod
         .enqueueAndDispatchWebhook("demand.created", {
           demand,
@@ -511,13 +609,23 @@ export async function POST(req: NextRequest) {
       const baseUrl = baseUrlEnv.replace(/\/+$/, "");
       const link = baseUrl && demand.id ? `${baseUrl}/demands/${encodeURIComponent(demand.id)}` : "";
 
+      const priorityLabelForMessage = resolvePriorityLabelForMessage(
+        demand.priority as any,
+        workflowConfigForMessage,
+      );
+      const statusLabelForMessage = resolveStatusLabelForMessage(
+        demand.status as any,
+        workflowConfigForMessage,
+      );
+
       let content = `你有一条新的需求需要处理：${demand.title}`;
-      if (demand.priority) {
-        content += `\n优先级：${demand.priority}`;
+      if (priorityLabelForMessage) {
+        content += `\n优先级：${priorityLabelForMessage}`;
       }
-      if (demand.status) {
-        content += `\n当前状态：${demand.status}`;
+      if (statusLabelForMessage) {
+        content += `\n当前状态：${statusLabelForMessage}`;
       }
+
       if (link) {
         content += `\n查看详情：${link}`;
       }
