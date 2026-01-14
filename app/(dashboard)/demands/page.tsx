@@ -859,12 +859,15 @@ export default function DemandsPage() {
                 </select>
               </div>
             </div>
+            {/* 当前版本暂不开放 AI 智能分析功能，按钮暂时隐藏 */}
+            {/*
             <div className="flex-shrink-0">
               <button className="w-full lg:w-auto flex items-center justify-center gap-2 text-purple-700 bg-purple-50 px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-purple-100 transition-colors border border-purple-100">
                 <Sparkles className="w-4 h-4" />
                 AI 智能分析
               </button>
             </div>
+            */}
           </div>
 
           {/* 下层：时间范围 + 人员筛选 + 只看我提交的 */}

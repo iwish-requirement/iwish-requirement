@@ -251,10 +251,13 @@ export default function NewDemandPage() {
 
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold text-slate-900">提交新需求</h1>
+        {/* 当前版本暂不开放 AI 辅助填写功能，按钮暂时隐藏 */}
+        {/*
         <button className="hidden sm:flex items-center gap-2 text-purple-700 bg-purple-50 px-4 py-2 rounded-xl text-sm font-bold hover:bg-purple-100 transition-colors border border-purple-100">
              <Sparkles className="w-4 h-4" />
              AI 辅助填写
         </button>
+        */}
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -360,11 +363,14 @@ export default function NewDemandPage() {
                 onChange={(e) => setDescription(e.target.value)}
                 className="w-full px-4 py-3 text-base border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none shadow-sm transition-all resize-none"
               ></textarea>
+              {/* 当前版本暂不开放 AI 优化描述功能，按钮暂时隐藏 */}
+              {/*
               <div className="mt-2 flex justify-end">
                 <button className="text-sm text-purple-600 font-medium hover:underline flex items-center gap-1">
                   <Sparkles className="w-3 h-3" /> 优化描述文案
                 </button>
               </div>
+              */}
             </div>
             <div>
               <label className="block text-base font-bold text-slate-700 mb-2">期望完成日期</label>

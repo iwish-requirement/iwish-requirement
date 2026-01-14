@@ -655,7 +655,8 @@ export default function StatsPage() {
                 <thead>
                   <tr className="text-left text-slate-500 border-b border-slate-100">
                     <th className="py-2 pr-4 font-medium whitespace-nowrap">成员</th>
-                    <th className="py-2 px-4 font-medium whitespace-nowrap">角色</th>
+                    {/* 当前版本不展示成员角色列 */}
+                    {/* <th className="py-2 px-4 font-medium whitespace-nowrap">角色</th> */}
                     <th className="py-2 px-4 font-medium whitespace-nowrap">负责需求数</th>
                     <th className="py-2 px-4 font-medium whitespace-nowrap">已完成需求数</th>
                     <th className="py-2 px-4 font-medium whitespace-nowrap">平均处理天数</th>
@@ -672,9 +673,12 @@ export default function StatsPage() {
                           <div className="text-[11px] text-slate-400">{m.userEmail}</div>
                         )}
                       </td>
+                      {/* 当前版本不展示成员角色列 */}
+                      {/*
                       <td className="py-2 px-4 text-slate-700">
                         {m.role || <span className="text-slate-400">未设置角色</span>}
                       </td>
+                      */}
                       <td className="py-2 px-4 text-slate-700">{m.demandsAssignee}</td>
                       <td className="py-2 px-4 text-slate-700">{m.demandsCompleted}</td>
                       <td className="py-2 px-4 text-slate-700">
