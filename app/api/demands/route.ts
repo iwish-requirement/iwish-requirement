@@ -244,79 +244,290 @@ export async function GET(req: NextRequest) {
     const basePageSize = Number.isNaN(pageSizeParam) || pageSizeParam < 1 ? 20 : pageSizeParam;
     const pageSize = Math.min(basePageSize, 100);
 
-    let query = supabaseAdmin
-      .from("demands")
-      .select("*", { count: "exact" })
-      .order("created_at", { ascending: false });
+    const summaryParam = url.searchParams.get("summary");
+    const summaryMode = summaryParam === "1" || summaryParam === "true";
+    const recentSizeParam = parseInt(url.searchParams.get("recentSize") || "4", 10);
+    const recentSize = Number.isNaN(recentSizeParam) || recentSizeParam < 1 ? 4 : Math.min(recentSizeParam, 10);
 
-    // 状态筛选：直接使用数据库状态值
-    if (statusParam) {
-      query = query.eq("status", statusParam);
-    }
+    const applyFilters = (
+      qb: any,
+      options?: { statusOverride?: string | null; skipStatusParam?: boolean },
+    ) => {
+      const statusOverride = options?.statusOverride ?? null;
+      const skipStatusParam = options?.skipStatusParam ?? false;
 
-    // 优先级筛选：直接使用数据库优先级值
-    if (priorityParam) {
-      query = query.eq("priority", priorityParam);
-    }
+      let query = qb;
 
-    if (departmentIdParam) {
-      const asNumber = Number.parseInt(departmentIdParam, 10);
-      if (!Number.isNaN(asNumber)) {
-        query = query.eq("department_id", asNumber);
-      } else {
-        query = query.eq("fields->>departmentKey", departmentIdParam);
+      if (!skipStatusParam && statusParam) {
+        query = query.eq("status", statusParam);
       }
-    }
 
-    if (creatorCode) {
-      query = query.eq("fields->>creatorCode", creatorCode);
-    }
-
-    if (creatorUserIdParam) {
-      const creatorUserIdNumber = Number.parseInt(creatorUserIdParam, 10);
-      if (!Number.isNaN(creatorUserIdNumber) && creatorUserIdNumber > 0) {
-        query = query.eq("creator_id", creatorUserIdNumber);
+      if (statusOverride) {
+        query = query.eq("status", statusOverride);
       }
-    }
 
-    if (assigneeUserIdParam) {
-      const assigneeUserIdNumber = Number.parseInt(assigneeUserIdParam, 10);
-      if (!Number.isNaN(assigneeUserIdNumber) && assigneeUserIdNumber > 0) {
-        query = query.eq("assignee_id", assigneeUserIdNumber);
+      if (priorityParam) {
+        query = query.eq("priority", priorityParam);
       }
-    }
 
-    if (createdFrom) {
-      query = query.gte("created_at", createdFrom);
-    }
-
-    if (createdTo) {
-      query = query.lte("created_at", createdTo);
-    }
-
-    if (dueFrom) {
-      query = query.gte("fields->>dueDate", dueFrom);
-    }
-
-    if (dueTo) {
-      query = query.lte("fields->>dueDate", dueTo);
-    }
-
-    if (customFieldFilters.length > 0) {
-      for (const filter of customFieldFilters) {
-        query = query.eq(`fields->>${filter.key}`, filter.value);
+      if (departmentIdParam) {
+        const asNumber = Number.parseInt(departmentIdParam, 10);
+        if (!Number.isNaN(asNumber)) {
+          query = query.eq("department_id", asNumber);
+        } else {
+          query = query.eq("fields->>departmentKey", departmentIdParam);
+        }
       }
-    }
 
-    if (q) {
-      const pattern = `%${q}%`;
-      query = query.or(
-        `title.ilike.${pattern},fields->>description.ilike.${pattern},fields->>code.ilike.${pattern}`
-      );
-    }
+      if (creatorCode) {
+        query = query.eq("fields->>creatorCode", creatorCode);
+      }
+
+      if (creatorUserIdParam) {
+        const creatorUserIdNumber = Number.parseInt(creatorUserIdParam, 10);
+        if (!Number.isNaN(creatorUserIdNumber) && creatorUserIdNumber > 0) {
+          query = query.eq("creator_id", creatorUserIdNumber);
+        }
+      }
+
+      if (assigneeUserIdParam) {
+        const assigneeUserIdNumber = Number.parseInt(assigneeUserIdParam, 10);
+        if (!Number.isNaN(assigneeUserIdNumber) && assigneeUserIdNumber > 0) {
+          query = query.eq("assignee_id", assigneeUserIdNumber);
+        }
+      }
+
+      if (createdFrom) {
+        query = query.gte("created_at", createdFrom);
+      }
+
+      if (createdTo) {
+        query = query.lte("created_at", createdTo);
+      }
+
+      if (dueFrom) {
+        query = query.gte("fields->>dueDate", dueFrom);
+      }
+
+      if (dueTo) {
+        query = query.lte("fields->>dueDate", dueTo);
+      }
+
+      if (customFieldFilters.length > 0) {
+        for (const filter of customFieldFilters) {
+          query = query.eq(`fields->>${filter.key}`, filter.value);
+        }
+      }
+
+      if (q) {
+        const pattern = `%${q}%`;
+        query = query.or(
+          `title.ilike.${pattern},fields->>description.ilike.${pattern},fields->>code.ilike.${pattern}`
+        );
+      }
+
+      return query;
+    };
+
+    const buildDemandsWithDisplayFields = async (rows: any[]): Promise<Demand[]> => {
+      const creatorIds = Array.from(
+        new Set(
+          rows
+            .map((row: any) => row.creator_id as number | null)
+            .filter((id) => typeof id === "number" && Number.isFinite(id))
+        )
+      ) as number[];
+
+      const assigneeIds = Array.from(
+        new Set(
+          rows
+            .map((row: any) => row.assignee_id as number | null)
+            .filter((id) => typeof id === "number" && Number.isFinite(id))
+        )
+      ) as number[];
+
+      const allUserIds = Array.from(new Set([...(creatorIds || []), ...(assigneeIds || [])]));
+
+      const userMap = new Map<number, { id: number; name: string | null; email: string | null }>();
+
+      if (allUserIds.length > 0) {
+        const { data: users, error: usersError } = await supabaseAdmin
+          .from("users")
+          .select("id, name, email")
+          .in("id", allUserIds);
+
+        if (usersError) {
+          console.error("[api/demands] load users for list error", usersError);
+        } else if (users) {
+          for (const u of users) {
+            const id = u.id as number;
+            userMap.set(id, {
+              id,
+              name: (u.name as string | null) ?? null,
+              email: (u.email as string | null) ?? null,
+            });
+          }
+        }
+      }
+
+      const deptIdsForConfig = Array.from(
+        new Set(
+          rows
+            .map((row: any) => row.department_id as number | null)
+            .filter((id) => typeof id === "number" && Number.isFinite(id))
+        )
+      ) as number[];
+
+      const workflowConfigMap = new Map<number, DepartmentWorkflowConfig>();
+
+      if (deptIdsForConfig.length > 0) {
+        const { data: deptRows, error: deptCfgError } = await supabaseAdmin
+          .from("departments")
+          .select("id, priority_config, status_config")
+          .in("id", deptIdsForConfig);
+
+        if (deptCfgError) {
+          console.error("[api/demands] load workflow config for list error", deptCfgError);
+        } else if (deptRows) {
+          for (const d of deptRows as any[]) {
+            const id = d.id as number;
+            const cfg: DepartmentWorkflowConfig = {
+              priorities: ((d as any).priority_config as any[]) || [],
+              statuses: ((d as any).status_config as any[]) || [],
+            };
+            workflowConfigMap.set(id, cfg);
+          }
+        }
+      }
+
+      const items = rows.map((row: any) => {
+        const demand: any = mapRowToDemand(row);
+
+        const deptIdForConfig =
+          typeof row.department_id === "number" && Number.isFinite(row.department_id)
+            ? (row.department_id as number)
+            : null;
+        const cfgForRow = deptIdForConfig ? workflowConfigMap.get(deptIdForConfig) ?? null : null;
+
+        if (cfgForRow) {
+          const priorityLabel = resolvePriorityLabelForMessage(demand.priority as any, cfgForRow);
+          const statusLabel = resolveStatusLabelForMessage(demand.status as any, cfgForRow);
+
+          if (priorityLabel) {
+            demand.priorityLabel = priorityLabel;
+            const pCfg =
+              cfgForRow.priorities.find(
+                (p) => p.value === (demand.priority as any) || p.label === priorityLabel,
+              ) || null;
+            if (pCfg && pCfg.color) {
+              demand.priorityColor = pCfg.color;
+            }
+          }
+
+          if (statusLabel) {
+            demand.statusLabel = statusLabel;
+            const sCfg =
+              cfgForRow.statuses.find(
+                (s) => s.value === (demand.status as any) || s.label === statusLabel,
+              ) || null;
+            if (sCfg && sCfg.color) {
+              demand.statusColor = sCfg.color;
+            }
+          }
+        } else {
+          const priorityLabel = resolvePriorityLabelForMessage(demand.priority as any, null);
+          const statusLabel = resolveStatusLabelForMessage(demand.status as any, null);
+          if (priorityLabel) {
+            demand.priorityLabel = priorityLabel;
+          }
+          if (statusLabel) {
+            demand.statusLabel = statusLabel;
+          }
+        }
+
+        const creatorUser = row.creator_id ? userMap.get(row.creator_id as number) : undefined;
+        const assigneeUser = row.assignee_id ? userMap.get(row.assignee_id as number) : undefined;
+
+        if (creatorUser) {
+          demand.creatorName = creatorUser.name || demand.creatorId;
+          demand.creatorEmail = creatorUser.email || undefined;
+        }
+
+        if (assigneeUser) {
+          demand.assigneeName = assigneeUser.name || demand.assigneeId;
+          demand.assigneeEmail = assigneeUser.email || undefined;
+        }
+
+        return demand as Demand;
+      });
+
+      return items;
+    };
 
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
+
+    if (summaryMode) {
+      let summaryQuery = applyFilters(
+        supabaseAdmin
+          .from("demands")
+          .select("*", { count: "exact" })
+          .order("created_at", { ascending: false }),
+        { skipStatusParam: true },
+      );
+
+      const { data, error, count } = await summaryQuery.range(0, recentSize - 1);
+
+      if (error) {
+        console.error("[api/demands] summary query error", error);
+        return NextResponse.json(
+          { error: "failed to load demands summary", detail: error.message },
+          { status: 500 },
+        );
+      }
+
+      const rows = (data || []) as any[];
+      const items = await buildDemandsWithDisplayFields(rows);
+
+      const countForStatus = async (statusValue: string) => {
+        const { count: statusCount, error: statusError } = await applyFilters(
+          supabaseAdmin.from("demands").select("*", { head: true, count: "exact" }),
+          { statusOverride: statusValue, skipStatusParam: true },
+        );
+
+        if (statusError) {
+          console.error("[api/demands] summary count error", statusError);
+          return null;
+        }
+
+        return statusCount ?? 0;
+      };
+
+      const [pendingSummary, inProgressSummary, doneSummary] = await Promise.all([
+        countForStatus("pending"),
+        countForStatus("in_progress"),
+        countForStatus("done"),
+      ]);
+
+      return NextResponse.json({
+        items,
+        page: 1,
+        pageSize: recentSize,
+        total: count ?? items.length,
+        counts: {
+          pending: pendingSummary,
+          in_progress: inProgressSummary,
+          done: doneSummary,
+        },
+      });
+    }
+
+    let query = applyFilters(
+      supabaseAdmin
+        .from("demands")
+        .select("*", { count: "exact" })
+        .order("created_at", { ascending: false }),
+    );
 
     const { data, error, count } = await query.range(from, to);
 
@@ -329,66 +540,7 @@ export async function GET(req: NextRequest) {
     }
 
     const rows = (data || []) as any[];
-
-    // 为当前页的所有需求批量加载创建人和执行人信息，用于列表展示中文姓名
-    const creatorIds = Array.from(
-      new Set(
-        rows
-          .map((row) => row.creator_id as number | null)
-          .filter((id) => typeof id === "number" && Number.isFinite(id))
-      )
-    ) as number[];
-
-    const assigneeIds = Array.from(
-      new Set(
-        rows
-          .map((row) => row.assignee_id as number | null)
-          .filter((id) => typeof id === "number" && Number.isFinite(id))
-      )
-    ) as number[];
-
-    const allUserIds = Array.from(new Set([...(creatorIds || []), ...(assigneeIds || [])]));
-
-    let userMap = new Map<number, { id: number; name: string | null; email: string | null }>();
-
-    if (allUserIds.length > 0) {
-      const { data: users, error: usersError } = await supabaseAdmin
-        .from("users")
-        .select("id, name, email")
-        .in("id", allUserIds);
-
-      if (usersError) {
-        console.error("[api/demands] load users for list error", usersError);
-      } else if (users) {
-        for (const u of users) {
-          const id = u.id as number;
-          userMap.set(id, {
-            id,
-            name: (u.name as string | null) ?? null,
-            email: (u.email as string | null) ?? null,
-          });
-        }
-      }
-    }
-
-    const items = rows.map((row) => {
-      const demand: any = mapRowToDemand(row);
-
-      const creatorUser = row.creator_id ? userMap.get(row.creator_id as number) : undefined;
-      const assigneeUser = row.assignee_id ? userMap.get(row.assignee_id as number) : undefined;
-
-      if (creatorUser) {
-        demand.creatorName = creatorUser.name || demand.creatorId;
-        demand.creatorEmail = creatorUser.email || undefined;
-      }
-
-      if (assigneeUser) {
-        demand.assigneeName = assigneeUser.name || demand.assigneeId;
-        demand.assigneeEmail = assigneeUser.email || undefined;
-      }
-
-      return demand as Demand;
-    });
+    const items = await buildDemandsWithDisplayFields(rows);
 
     return NextResponse.json({
       items,
@@ -396,7 +548,9 @@ export async function GET(req: NextRequest) {
       pageSize,
       total: count ?? items.length,
     });
+
   } catch (error: any) {
+
     console.error("[api/demands] error", error);
     return NextResponse.json(
       {

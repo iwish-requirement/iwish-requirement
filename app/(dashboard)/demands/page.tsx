@@ -9,7 +9,66 @@ import { authorizedFetch } from "../../../lib/authFetch";
 import Badge from "../../../components/ui/Badge";
 import Modal from "../../../components/ui/Modal";
 
+const normalizePriorityForRealtime = (raw: any): string => {
+  const value = (raw ?? "").toString();
+  if (value.includes("紧急")) return "紧急";
+  if (value.includes("高")) return "高";
+  if (value.includes("中")) return "中";
+  if (value.includes("低")) return "低";
+  return value || "中";
+};
+
+const mapRealtimeRowToDemand = (row: any): Demand => {
+  const fields = (row.fields || {}) as any;
+
+  const code: string =
+    fields.code || `REQ-${String(row.id ?? "").toString().padStart(4, "0")}`;
+  const description: string = fields.description || "";
+  const priorityFromDb = (row.priority as string | null) || fields.priority || "";
+  const priority = normalizePriorityForRealtime(priorityFromDb) as Priority;
+  const dueDate: string = fields.dueDate || "";
+  const departmentId: string =
+    row.department_id !== undefined && row.department_id !== null
+      ? String(row.department_id)
+      : fields.departmentKey || "d1";
+  const creatorId: string = fields.creatorCode || `U${row.creator_id ?? ""}`;
+  const assigneeId: string | undefined = fields.assigneeCode;
+
+  const {
+    code: _c,
+    description: _d,
+    priority: _p,
+    dueDate: _dd,
+    departmentKey: _dk,
+    creatorCode: _cc,
+    assigneeCode: _ac,
+    ...rest
+  } = fields;
+
+  const createdAt =
+    row.created_at && typeof row.created_at === "string"
+      ? new Date(row.created_at).toISOString().slice(0, 10)
+      : "";
+
+  const status = ((row.status as string) || "pending") as DemandStatus;
+
+  return {
+    id: code,
+    title: row.title as string,
+    description,
+    departmentId,
+    creatorId,
+    assigneeId,
+    status,
+    priority,
+    createdAt,
+    dueDate,
+    customFields: Object.keys(rest).length ? rest : undefined,
+  };
+};
+
 export default function DemandsPage() {
+
   const router = useRouter();
 
   const [selectedDept, setSelectedDept] = useState("all");
@@ -43,7 +102,7 @@ export default function DemandsPage() {
   const [dynamicFilters, setDynamicFilters] = useState<Record<string, string>>({});
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [workflowConfig, setWorkflowConfig] = useState<DepartmentWorkflowConfig | null>(null);
-  const [workflowConfigsByDept, setWorkflowConfigsByDept] = useState<Record<string, DepartmentWorkflowConfig>>({});
+
 
   const [deleteTargetDemand, setDeleteTargetDemand] = useState<Demand | null>(null);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
@@ -151,10 +210,7 @@ export default function DemandsPage() {
           statuses: [...cfg.statuses].sort((a, b) => a.order - b.order),
         };
         setWorkflowConfig(sorted);
-        setWorkflowConfigsByDept((prev) => ({
-          ...prev,
-          [selectedDept]: sorted,
-        }));
+
       } catch (e) {
         console.error("load workflow config for demands list error", e);
         setWorkflowConfig(null);
@@ -276,61 +332,6 @@ export default function DemandsPage() {
         setDemands(items);
         setTotal(json.total ?? 0);
 
-        if (selectedDept === "all" && items.length > 0) {
-          const deptIds = Array.from(
-            new Set(
-              items
-                .map((item) => item.departmentId)
-                .filter((id): id is string => Boolean(id))
-            )
-          );
-
-          const missingIds = deptIds.filter((id) => !workflowConfigsByDept[id]);
-          if (missingIds.length > 0) {
-            Promise.all(
-              missingIds.map(async (deptId) => {
-                try {
-                  const cfgRes = await authorizedFetch(
-                    `/api/departments/${encodeURIComponent(deptId)}/workflow-config`
-                  );
-                  if (!cfgRes.ok) {
-                    console.error(
-                      "load workflow config for demands list (all departments) error",
-                      await cfgRes.text()
-                    );
-                    return null;
-                  }
-                  const cfgJson = await cfgRes.json();
-                  const cfg = (cfgJson.config || null) as DepartmentWorkflowConfig | null;
-                  if (!cfg || !Array.isArray(cfg.statuses) || !Array.isArray(cfg.priorities)) {
-                    return null;
-                  }
-                  const sorted: DepartmentWorkflowConfig = {
-                    priorities: [...cfg.priorities].sort((a, b) => a.order - b.order),
-                    statuses: [...cfg.statuses].sort((a, b) => a.order - b.order),
-                  };
-                  return { deptId, config: sorted };
-                } catch (e) {
-                  console.error(
-                    "load workflow config for demands list (all departments) error",
-                    e
-                  );
-                  return null;
-                }
-              })
-            ).then((results) => {
-              const next: Record<string, DepartmentWorkflowConfig> = {};
-              results.forEach((item) => {
-                if (item) {
-                  next[item.deptId] = item.config;
-                }
-              });
-              if (Object.keys(next).length > 0) {
-                setWorkflowConfigsByDept((prev) => ({ ...prev, ...next }));
-              }
-            });
-          }
-        }
       } catch (e: any) {
         if (e?.name === "AbortError") return;
         console.error("load demands error", e);
@@ -364,6 +365,224 @@ export default function DemandsPage() {
     dueTo,
   ]);
 
+  useEffect(() => {
+    if (page !== 1) {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    const poll = async () => {
+      try {
+        if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+          return;
+        }
+
+        const params = new URLSearchParams();
+        if (searchQuery.trim()) {
+          params.set("q", searchQuery.trim());
+        }
+        if (selectedDept !== "all") {
+          params.set("departmentId", selectedDept);
+        }
+        if (selectedStatus !== "all") {
+          params.set("status", selectedStatus);
+        }
+        if (selectedPriority !== "all") {
+          params.set("priority", selectedPriority);
+        }
+        if (onlyMyCreated && currentUserCode) {
+          params.set("creatorCode", currentUserCode);
+        }
+        if (creatorUserId) {
+          params.set("creatorUserId", creatorUserId);
+        }
+        if (assigneeUserId) {
+          params.set("assigneeUserId", assigneeUserId);
+        }
+        if (createdFrom) {
+          params.set("createdFrom", createdFrom);
+        }
+        if (createdTo) {
+          params.set("createdTo", createdTo);
+        }
+        if (dueFrom) {
+          params.set("dueFrom", dueFrom);
+        }
+        if (dueTo) {
+          params.set("dueTo", dueTo);
+        }
+        Object.entries(dynamicFilters).forEach(([fieldId, value]) => {
+          if (!value) return;
+          params.set(`cf_${fieldId}`, value);
+        });
+        params.set("page", "1");
+        params.set("pageSize", String(pageSize));
+
+        const qs = params.toString();
+        const res = await authorizedFetch(`/api/demands${qs ? `?${qs}` : ""}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          console.error("poll demands error", text);
+          return;
+        }
+        const json = await res.json();
+        const items = (json.items || []) as Demand[];
+        setDemands(items);
+        setTotal(json.total ?? 0);
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
+        console.error("poll demands error", e);
+      }
+    };
+
+    const intervalId = window.setInterval(poll, 3000);
+
+
+    return () => {
+      window.clearInterval(intervalId);
+      controller.abort();
+    };
+  }, [
+    searchQuery,
+    selectedDept,
+    selectedStatus,
+    selectedPriority,
+    onlyMyCreated,
+    currentUserCode,
+    creatorUserId,
+    assigneeUserId,
+    dynamicFilters,
+    createdFrom,
+    createdTo,
+    dueFrom,
+    dueTo,
+    page,
+    pageSize,
+  ]);
+
+
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+
+    console.log("[demands realtime] setup channel", {
+      selectedDept,
+      selectedStatus,
+      selectedPriority,
+      onlyMyCreated,
+      creatorUserId,
+      assigneeUserId,
+    });
+
+    const channel = supabase
+      .channel("demands-list-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "demands",
+        } as any,
+        (payload) => {
+          console.log("[demands realtime] INSERT payload", payload);
+          const row = (payload as any).new;
+          if (!row) {
+            return;
+          }
+          const mapped = mapRealtimeRowToDemand(row);
+
+          if (onlyMyCreated && currentUserCode) {
+            const creatorCode = (mapped.creatorId || "").toString().toUpperCase();
+            if (creatorCode !== currentUserCode.toUpperCase()) {
+              return;
+            }
+          }
+
+          if (selectedStatus !== "all" && mapped.status !== selectedStatus) {
+            return;
+          }
+
+          if (selectedPriority !== "all" && mapped.priority !== selectedPriority) {
+            return;
+          }
+
+          if (creatorUserId) {
+            if (mapped.creatorId !== creatorUserId) {
+              return;
+            }
+          }
+
+          if (assigneeUserId) {
+            if (mapped.assigneeId !== assigneeUserId) {
+              return;
+            }
+          }
+
+          setDemands((prev) => {
+            if (prev.some((item) => item.id === mapped.id)) {
+              return prev;
+            }
+            const next = [mapped, ...prev];
+            if (next.length > pageSize) {
+              next.pop();
+            }
+            return next;
+          });
+          setTotal((prev) => prev + 1);
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "demands",
+        } as any,
+        (payload) => {
+          console.log("[demands realtime] DELETE payload", payload);
+          const row = (payload as any).old;
+          if (!row) {
+            return;
+          }
+          const fields = (row.fields || {}) as any;
+          const id: string | null =
+            (fields.code as string | undefined) ||
+            (typeof row.id !== "undefined" && row.id !== null
+              ? `REQ-${String(row.id ?? "").toString().padStart(4, "0")}`
+              : null);
+          if (!id) {
+            return;
+          }
+          setDemands((prev) => prev.filter((item) => item.id !== id));
+          setTotal((prev) => Math.max(0, prev - 1));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [
+    selectedDept,
+    selectedStatus,
+    selectedPriority,
+    onlyMyCreated,
+    currentUserCode,
+    creatorUserId,
+    assigneeUserId,
+    searchQuery,
+    createdFrom,
+    createdTo,
+    dueFrom,
+    dueTo,
+    dynamicFilters,
+    pageSize,
+  ]);
+
+
+
   const getPriorityColor = (priority: Priority) => {
     switch (priority) {
       case Priority.CRITICAL:
@@ -377,7 +596,7 @@ export default function DemandsPage() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string, labelOverride?: string) => {
     const normalized: DemandStatus = (() => {
       // 支持英文数据库值和中文旧值
       switch (status) {
@@ -412,95 +631,80 @@ export default function DemandsPage() {
     if (normalized === DemandStatus.DELAYED) variant = "warning";
     if (normalized === DemandStatus.IGNORED) variant = "outline";
 
-    return <Badge variant={variant}>{normalized}</Badge>;
+    return <Badge variant={variant}>{labelOverride || normalized}</Badge>;
   };
 
-  const renderStatusBadge = (status: string, departmentId?: string) => {
-    let cfg: DepartmentWorkflowConfig | null = null;
+  const renderStatusBadge = (demand: Demand) => {
+    const rawStatus = (demand.status as string) || "";
+    const labelFromApi = demand.statusLabel || "";
+    const colorFromApi = demand.statusColor || "";
 
-    if (selectedDept !== "all") {
-      cfg = workflowConfig;
-    } else if (departmentId && workflowConfigsByDept[departmentId]) {
-      cfg = workflowConfigsByDept[departmentId];
+    if (labelFromApi && colorFromApi) {
+      return (
+        <span
+          className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border"
+          style={{
+            color: colorFromApi,
+            borderColor: colorFromApi,
+            backgroundColor: `${colorFromApi}1A`,
+          }}
+        >
+          {labelFromApi}
+        </span>
+      );
     }
 
-    if (cfg && cfg.statuses.length > 0) {
-      const found = cfg.statuses.find((s) => s.value === status);
-      if (found) {
-        return (
-          <span
-            className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border"
-            style={{
-              color: found.color,
-              borderColor: found.color,
-              backgroundColor: `${found.color}1A`,
-            }}
-          >
-            {found.label}
-          </span>
-        );
-      }
+    if (labelFromApi) {
+      return getStatusBadge(rawStatus, labelFromApi);
     }
-    return getStatusBadge(status as DemandStatus);
+
+    return getStatusBadge(rawStatus);
   };
 
-  const renderPriorityBadge = (priority: string, departmentId?: string) => {
-    let cfg: DepartmentWorkflowConfig | null = null;
+  const renderPriorityBadge = (demand: Demand) => {
+    const labelFromApi = demand.priorityLabel || "";
+    const colorFromApi = demand.priorityColor || "";
 
-    if (selectedDept !== "all") {
-      cfg = workflowConfig;
-    } else if (departmentId && workflowConfigsByDept[departmentId]) {
-      cfg = workflowConfigsByDept[departmentId];
+    if (labelFromApi && colorFromApi) {
+      return (
+        <span
+          className="inline-flex items-center px-2.5 py-1 rounded-md border text-xs font-bold"
+          style={{
+            color: colorFromApi,
+            borderColor: colorFromApi,
+            backgroundColor: `${colorFromApi}1A`,
+          }}
+        >
+          {labelFromApi}
+        </span>
+      );
     }
 
-    if (cfg && cfg.priorities.length > 0) {
-      const found = cfg.priorities.find((p) => p.value === priority);
-      if (found) {
-        return (
-          <span
-            className="inline-flex items-center px-2.5 py-1 rounded-md border text-xs font-bold"
-            style={{
-              color: found.color,
-              borderColor: found.color,
-              backgroundColor: `${found.color}1A`,
-            }}
-          >
-            {found.label}
-          </span>
-        );
-      }
+    if (labelFromApi) {
+      return (
+        <span className="px-2.5 py-1 rounded-md border text-xs font-bold text-slate-700 bg-slate-50 border-slate-200">
+          {labelFromApi}
+        </span>
+      );
     }
 
     return (
       <span
-        className={`px-2.5 py-1 rounded-md border text-xs font-bold ${getPriorityColor(priority as Priority)}`}
+        className={`px-2.5 py-1 rounded-md border text-xs font-bold ${getPriorityColor(demand.priority as Priority)}`}
       >
-        {priority}
+        {demand.priority}
       </span>
     );
   };
 
+
   const allPriorityOptions = React.useMemo(
     () => {
-      if (selectedDept !== "all") {
-        if (workflowConfig && workflowConfig.priorities.length > 0) {
-          return workflowConfig.priorities.map((p) => ({
-            value: p.value,
-            label: p.label,
-          }));
-        }
-      } else {
-        const collected: { value: string; label: string }[] = [];
-        Object.values(workflowConfigsByDept).forEach((cfg) => {
-          cfg.priorities.forEach((p) => {
-            if (!collected.find((item) => item.value === p.value)) {
-              collected.push({ value: p.value, label: p.label });
-            }
-          });
-        });
-        if (collected.length > 0) {
-          return collected;
-        }
+      if (selectedDept !== "all" && workflowConfig && workflowConfig.priorities.length > 0) {
+        return workflowConfig.priorities.map((p) => ({
+          value: p.value,
+          label: p.label,
+        }));
       }
 
       return [
@@ -510,30 +714,16 @@ export default function DemandsPage() {
         { value: Priority.LOW, label: Priority.LOW },
       ];
     },
-    [selectedDept, workflowConfig, workflowConfigsByDept]
+    [selectedDept, workflowConfig]
   );
 
   const allStatusOptions = React.useMemo(
     () => {
-      if (selectedDept !== "all") {
-        if (workflowConfig && workflowConfig.statuses.length > 0) {
-          return workflowConfig.statuses.map((s) => ({
-            value: s.value,
-            label: s.label,
-          }));
-        }
-      } else {
-        const collected: { value: string; label: string }[] = [];
-        Object.values(workflowConfigsByDept).forEach((cfg) => {
-          cfg.statuses.forEach((s) => {
-            if (!collected.find((item) => item.value === s.value)) {
-              collected.push({ value: s.value, label: s.label });
-            }
-          });
-        });
-        if (collected.length > 0) {
-          return collected;
-        }
+      if (selectedDept !== "all" && workflowConfig && workflowConfig.statuses.length > 0) {
+        return workflowConfig.statuses.map((s) => ({
+          value: s.value,
+          label: s.label,
+        }));
       }
 
       return [
@@ -544,8 +734,9 @@ export default function DemandsPage() {
         { value: DemandStatus.IGNORED, label: DemandStatus.IGNORED },
       ];
     },
-    [selectedDept, workflowConfig, workflowConfigsByDept]
+    [selectedDept, workflowConfig]
   );
+
 
   const maxPage = Math.max(1, Math.ceil(total / pageSize));
 
@@ -1165,9 +1356,10 @@ export default function DemandsPage() {
                       </div>
                     </td>
                     <td className="px-6 py-5 text-center whitespace-nowrap">
-                      {renderPriorityBadge(demand.priority, demand.departmentId)}
+                      {renderPriorityBadge(demand)}
                     </td>
-                    <td className="px-6 py-5 text-center whitespace-nowrap">{renderStatusBadge(demand.status, demand.departmentId)}</td>
+                    <td className="px-6 py-5 text-center whitespace-nowrap">{renderStatusBadge(demand)}</td>
+
                     <td className="px-6 py-5 text-center whitespace-nowrap">
                       <div className="inline-flex items-center gap-2 text-slate-700 text-sm">
                         <User className="w-4 h-4 text-slate-400" />
@@ -1519,9 +1711,10 @@ export default function DemandsPage() {
                   {demand.id}
                 </div>
                   <div className="flex gap-2">
-                  {renderPriorityBadge(demand.priority, demand.departmentId)}
-                  {renderStatusBadge(demand.status, demand.departmentId)}
+                  {renderPriorityBadge(demand)}
+                  {renderStatusBadge(demand)}
                   </div>
+
 
               </div>
               <h3 className="text-lg font-bold text-slate-900 mb-2">{demand.title}</h3>

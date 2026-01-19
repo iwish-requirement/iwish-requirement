@@ -3,34 +3,42 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FileText, CheckCircle, Clock, TrendingUp, ArrowRight, AlertCircle, Plus } from 'lucide-react';
-import { DemandStatus, Priority, type DepartmentWorkflowConfig } from '../../types';
+import { DemandStatus, Priority } from '../../types';
 import { getSupabaseClient } from '../../lib/supabase';
 import { hasPermission } from '../../lib/permissions';
 import { authorizedFetch } from '../../lib/authFetch';
-import { getDepartments } from '../../utils/storage';
 import Badge from '../../components/ui/Badge';
 
 
-const StatCard = ({ title, value, trend, icon: Icon, color }: any) => (
+
+const StatCard = ({ title, value, trend, icon: Icon, color, loading }: any) => (
   <div className="bg-white p-5 md:p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
     <div className="flex justify-between items-start">
       <div>
         <p className="text-base font-medium text-slate-500 mb-2">{title}</p>
-        <h3 className="text-3xl font-bold text-slate-900 tracking-tight">{value}</h3>
+        {loading ? (
+          <div className="h-8 w-20 bg-slate-200 rounded-md animate-pulse" />
+        ) : (
+          <h3 className="text-3xl font-bold text-slate-900 tracking-tight">{value}</h3>
+        )}
       </div>
       <div className={`p-3 rounded-xl ${color} bg-opacity-10`}>
         <Icon className={`w-6 h-6 ${color.replace('bg-', 'text-')}`} />
       </div>
     </div>
-    {trend && (
-      <div className="mt-4 flex items-center text-sm font-medium text-green-600">
-        <TrendingUp className="w-4 h-4 mr-1.5" />
-        <span>{trend}</span>
-      </div>
+    {loading ? (
+      <div className="mt-4 h-4 w-28 bg-slate-200 rounded-md animate-pulse" />
+    ) : (
+      trend && (
+        <div className="mt-4 flex items-center text-sm font-medium text-green-600">
+          <TrendingUp className="w-4 h-4 mr-1.5" />
+          <span>{trend}</span>
+        </div>
+      )
     )}
-
   </div>
 );
+
 
 const DepartmentProgress = ({ onDeptClick }: { onDeptClick: (name: string) => void }) => {
   const [deptStats, setDeptStats] = useState<{ name: string; value: number; percent: number }[]>([]);
@@ -208,8 +216,8 @@ export default function Dashboard() {
   const [inProgressCount, setInProgressCount] = useState<number | null>(null);
   const [doneCount, setDoneCount] = useState<number | null>(null);
   const [recentDemands, setRecentDemands] = useState<any[]>([]);
-  const [workflowConfigsByDept, setWorkflowConfigsByDept] = useState<Record<string, DepartmentWorkflowConfig>>({});
   const [demandsLoading, setDemandsLoading] = useState(false);
+
   const [demandsError, setDemandsError] = useState<string | null>(null);
 
   const [pendingScoreCount, setPendingScoreCount] = useState<number>(0);
@@ -306,113 +314,44 @@ export default function Dashboard() {
         setDemandsLoading(true);
         setDemandsError(null);
 
-        const buildParams = (status?: string | null, pageSize?: number) => {
-          const params = new URLSearchParams();
-          if (status) {
-            params.set('status', status);
-          }
-          if (scope === 'personal' && userInfo.id) {
-            params.set('assigneeUserId', String(userInfo.id));
-          } else if (scope === 'department' && userInfo.departmentId) {
-            params.set('departmentId', String(userInfo.departmentId));
-          }
-          params.set('page', '1');
-          params.set('pageSize', String(pageSize ?? 1));
-          return params;
-        };
+        const params = new URLSearchParams();
+        params.set('summary', '1');
+        params.set('recentSize', '5');
 
-        const [pendingRes, inProgressRes, doneRes, listRes] = await Promise.all([
-          authorizedFetch(`/api/demands?${buildParams('pending').toString()}`),
-          authorizedFetch(`/api/demands?${buildParams('in_progress').toString()}`),
-          authorizedFetch(`/api/demands?${buildParams('done').toString()}`),
-          authorizedFetch(`/api/demands?${buildParams(null, 4).toString()}`),
-        ]);
-
-        const parseCount = async (res: Response): Promise<number | null> => {
-          if (!res.ok) {
-            console.error('dashboard load demands count error', await res.text());
-            return null;
-          }
-          const json = await res.json();
-          const totalValue = json.total as number | undefined;
-          if (typeof totalValue === 'number' && Number.isFinite(totalValue)) {
-            return totalValue;
-          }
-          const items = Array.isArray(json.items) ? json.items : [];
-          return items.length;
-        };
-
-        if (!cancelled) {
-          setPendingCount(await parseCount(pendingRes));
-        }
-        if (!cancelled) {
-          setInProgressCount(await parseCount(inProgressRes));
-        }
-        if (!cancelled) {
-          setDoneCount(await parseCount(doneRes));
+        if (scope === 'personal' && userInfo.id) {
+          params.set('assigneeUserId', String(userInfo.id));
+        } else if (scope === 'department' && userInfo.departmentId) {
+          params.set('departmentId', String(userInfo.departmentId));
         }
 
-        if (!cancelled) {
-          if (!listRes.ok) {
-            console.error('dashboard load recent demands error', await listRes.text());
+        const res = await authorizedFetch(`/api/demands?${params.toString()}`);
+
+        if (!res.ok) {
+          console.error('dashboard load demands summary error', await res.text());
+          if (!cancelled) {
+            setDemandsError('加载需求概览失败，请稍后重试');
+            setPendingCount(null);
+            setInProgressCount(null);
+            setDoneCount(null);
             setRecentDemands([]);
-          } else {
-            const json = await listRes.json();
-            const items = Array.isArray(json.items) ? json.items : [];
-            setRecentDemands(items);
-
-            const deptIds = Array.from(
-              new Set(
-                items
-                  .map((item: any) => item.departmentId)
-                  .filter((id: any) => id !== null && id !== undefined && id !== '')
-              )
-            ).map((id) => String(id));
-
-            const missingIds = deptIds.filter((id) => !workflowConfigsByDept[id]);
-            if (missingIds.length > 0) {
-              Promise.all(
-                missingIds.map(async (deptId) => {
-                  try {
-                    const cfgRes = await authorizedFetch(
-                      `/api/departments/${encodeURIComponent(deptId)}/workflow-config`
-                    );
-                    if (!cfgRes.ok) {
-                      console.error(
-                        'dashboard load workflow config for recent demands error',
-                        await cfgRes.text()
-                      );
-                      return null;
-                    }
-                    const cfgJson = await cfgRes.json();
-                    const cfg = (cfgJson.config || null) as DepartmentWorkflowConfig | null;
-                    if (!cfg || !Array.isArray(cfg.statuses) || !Array.isArray(cfg.priorities)) {
-                      return null;
-                    }
-                    const sorted: DepartmentWorkflowConfig = {
-                      priorities: [...cfg.priorities].sort((a, b) => a.order - b.order),
-                      statuses: [...cfg.statuses].sort((a, b) => a.order - b.order),
-                    };
-                    return { deptId, config: sorted };
-                  } catch (error) {
-                    console.error('dashboard load workflow config for recent demands error', error);
-                    return null;
-                  }
-                })
-              ).then((results) => {
-                const next: Record<string, DepartmentWorkflowConfig> = {};
-                results.forEach((item) => {
-                  if (item) {
-                    next[item.deptId] = item.config;
-                  }
-                });
-                if (Object.keys(next).length > 0) {
-                  setWorkflowConfigsByDept((prev) => ({ ...prev, ...next }));
-                }
-              });
-            }
           }
+          return;
         }
+
+        const json = await res.json();
+        if (cancelled) {
+          return;
+        }
+
+        const counts = (json.counts || {}) as Record<string, number | null | undefined>;
+        const safeNumber = (value: any) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+        setPendingCount(safeNumber(counts.pending));
+        setInProgressCount(safeNumber(counts.in_progress));
+        setDoneCount(safeNumber(counts.done));
+
+        const items = Array.isArray(json.items) ? json.items : [];
+        setRecentDemands(items);
       } catch (error) {
         console.error('dashboard load demands summary error', error);
         if (!cancelled) {
@@ -435,6 +374,7 @@ export default function Dashboard() {
       cancelled = true;
     };
   }, [userInfo, scope]);
+
 
   useEffect(() => {
     let cancelled = false;
@@ -498,7 +438,10 @@ export default function Dashboard() {
       ? '本部门视图'
       : '仅看我负责的需求';
 
+  const statsLoading = demandsLoading && pendingCount === null && inProgressCount === null && doneCount === null;
+
   const formatNumber = (value: number | null) => {
+
     if (value === null || value === undefined) return '--';
     if (!Number.isFinite(value)) return '--';
     return value;
@@ -515,28 +458,27 @@ export default function Dashboard() {
 
   const renderRecentStatusBadge = (demand: any) => {
     const statusValue = (demand?.status ?? '') as string;
-    const deptId = demand?.departmentId != null && demand?.departmentId !== '' ? String(demand.departmentId) : null;
+    const labelFromApi = (demand?.statusLabel as string | undefined) || null;
+    const colorFromApi = (demand?.statusColor as string | undefined) || null;
 
-    if (deptId && workflowConfigsByDept[deptId]) {
-      const cfg = workflowConfigsByDept[deptId];
-      const found = cfg.statuses.find((s) => s.value === statusValue);
-      if (found) {
-        return (
-          <span
-            className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border"
-            style={{
-              color: found.color,
-              borderColor: found.color,
-              backgroundColor: `${found.color}1A`,
-            }}
-          >
-            {found.label}
-          </span>
-        );
-      }
+    if (labelFromApi && colorFromApi) {
+      return (
+        <span
+          className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border"
+          style={{
+            color: colorFromApi,
+            borderColor: colorFromApi,
+            backgroundColor: `${colorFromApi}1A`,
+          }}
+        >
+          {labelFromApi}
+        </span>
+      );
     }
 
     const normalized = normalizeDemandStatus(statusValue);
+    const label = labelFromApi || normalized;
+
     let variant: any = 'default';
     if (normalized === DemandStatus.DONE || normalized === DemandStatus.CLOSED) {
       variant = 'success';
@@ -550,8 +492,9 @@ export default function Dashboard() {
       variant = 'outline';
     }
 
-    return <Badge variant={variant}>{normalized}</Badge>;
+    return <Badge variant={variant}>{label}</Badge>;
   };
+
 
   return (
     <div className="space-y-6 md:space-y-8 pb-8">
@@ -605,6 +548,7 @@ export default function Dashboard() {
           trend={scope === 'personal' ? '按我负责的需求统计' : '按当前视图统计'}
           icon={FileText}
           color="bg-blue-500 text-blue-600"
+          loading={statsLoading}
         />
         <StatCard
           title="进行中需求"
@@ -612,6 +556,7 @@ export default function Dashboard() {
           trend={scope === 'personal' ? undefined : '按当前视图统计'}
           icon={Clock}
           color="bg-yellow-500 text-yellow-600"
+          loading={statsLoading}
         />
         <StatCard
           title="已完成需求"
@@ -619,6 +564,7 @@ export default function Dashboard() {
           trend={scope === 'personal' ? undefined : '按当前视图统计'}
           icon={CheckCircle}
           color="bg-green-500 text-green-600"
+          loading={statsLoading}
         />
         <StatCard
           title="待评分任务"
@@ -630,7 +576,9 @@ export default function Dashboard() {
           }
           icon={AlertCircle}
           color="bg-purple-500 text-purple-600"
+          loading={false}
         />
+
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -651,7 +599,27 @@ export default function Dashboard() {
           )}
           <div className="divide-y divide-slate-100">
             {demandsLoading && !demandsError && recentDemands.length === 0 && (
-              <div className="p-5 text-sm text-slate-400">正在加载当前视图下的需求...</div>
+              <>
+                {Array.from({ length: 3 }).map((_, idx) => (
+                  <div
+                    key={idx}
+                    className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-pulse"
+                  >
+                    <div className="flex gap-4 items-start w-full">
+                      <div className="w-12 h-12 rounded-full bg-slate-200 flex-shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 bg-slate-200 rounded w-2/3" />
+                        <div className="h-3 bg-slate-100 rounded w-5/6" />
+                        <div className="flex gap-2">
+                          <div className="h-3 bg-slate-100 rounded w-24" />
+                          <div className="h-3 bg-slate-100 rounded w-16" />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="w-20 h-6 bg-slate-200 rounded" />
+                  </div>
+                ))}
+              </>
             )}
             {!demandsLoading && !demandsError && recentDemands.length === 0 && (
               <div className="p-5 text-sm text-slate-400">当前视图下暂无需求记录。</div>
@@ -687,6 +655,7 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
+
         </div>
 
         <div className="space-y-6">

@@ -14,7 +14,8 @@ type AppSettingsRow = {
 };
 
 function toResponsePayload(row: AppSettingsRow | null) {
-  const systemName = (row?.system_name || "Nexus - 内部需求管理系统").toString();
+  const systemName = (row?.system_name || "Iwish需求管理系统").toString();
+
   const registrationEnabled = !!row?.registration_enabled;
 
   return {

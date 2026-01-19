@@ -19,7 +19,7 @@ export default function RegisterPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isRegistrationAllowed, setIsRegistrationAllowed] = useState(false);
   const [isFlagLoaded, setIsFlagLoaded] = useState(false);
-  const [systemName, setSystemName] = useState('Nexus');
+  const [systemName, setSystemName] = useState('');
 
   useEffect(() => {
     const loadSettings = async () => {

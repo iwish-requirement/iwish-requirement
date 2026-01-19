@@ -28,7 +28,7 @@ export default function DashboardLayout({
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [accountStatusMessage, setAccountStatusMessage] = useState<string | null>(null);
-  const [systemName, setSystemName] = useState('Nexus - 内部需求管理系统');
+  const [systemName, setSystemName] = useState('');
   const router = useRouter();
   const pathname = usePathname();
 

@@ -12,7 +12,9 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [systemName, setSystemName] = useState('Nexus');
+  const [systemName, setSystemName] = useState('');
+
+
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -114,8 +116,9 @@ export default function LoginPage() {
                 />
              </div>
              <h1 className="text-4xl font-bold text-white mb-6 leading-tight">
-               Iwish需求管理系统
-             </h1>
+             {systemName}
+           </h1>
+
            </div>
            <div className="relative z-10 text-sm text-slate-600 mt-6">
              &copy; 2023 Nexus Corp. All rights reserved.

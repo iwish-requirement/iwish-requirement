@@ -71,12 +71,19 @@ export interface Demand {
   assigneeName?: string;
   assigneeEmail?: string;
   status: DemandStatus;
+  // 显示用状态文案与颜色（来源于部门配置）
+  statusLabel?: string;
+  statusColor?: string;
   priority: Priority;
+  // 显示用优先级文案与颜色（来源于部门配置）
+  priorityLabel?: string;
+  priorityColor?: string;
   createdAt: string;
   dueDate: string;
   // Dynamic fields simulation
-  customFields?: Record<string, string | number | any>; 
+  customFields?: Record<string, string | number | any>;
 }
+
 
 export interface StatMetric {
   label: string;
