@@ -772,7 +772,9 @@ export async function POST(req: NextRequest) {
         workflowConfigForMessage,
       );
 
-      let content = `你有一条新的需求需要处理：${demand.title}`;
+      const prefix = ((process.env.WECOM_MESSAGE_PREFIX as string | undefined) || "【需求系统】").toString().trim();
+
+      let content = `${prefix}你有一条新的需求需要处理：${demand.title}`;
       if (priorityLabelForMessage) {
         content += `\n优先级：${priorityLabelForMessage}`;
       }
@@ -783,6 +785,7 @@ export async function POST(req: NextRequest) {
       if (link) {
         content += `\n查看详情：${link}`;
       }
+
 
       console.log("[api/demands] wecom message content", content);
 

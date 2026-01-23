@@ -359,12 +359,15 @@ export async function ensureScoreTasksForUserPeriod(userId: number, creatorCode:
                 ? `${baseUrl}/scoring?period=${encodeURIComponent(currentConfig.period)}`
                 : "";
 
-              let content = `你有 ${toInsert.length} 条新的评分任务需要完成`;
+              const prefix = ((process.env.WECOM_MESSAGE_PREFIX as string | undefined) || "【需求系统】").toString().trim();
+
+              let content = `${prefix}你有 ${toInsert.length} 条新的评分任务需要完成`;
               content += `\n评分周期：${currentConfig.period}`;
 
               if (link) {
                 content += `\n前往评分：${link}`;
               }
+
 
               mod
                 .sendWecomAppTextMessage(uniqueIds, content)

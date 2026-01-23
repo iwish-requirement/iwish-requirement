@@ -338,11 +338,14 @@ export async function PATCH(
               const baseUrl = baseUrlEnv.replace(/\/+$/, "");
               const link = baseUrl && demand.id ? `${baseUrl}/demands/${encodeURIComponent(demand.id)}` : "";
 
-              let content = `你提交的需求已处理完成：${demand.title}`;
+              const prefix = ((process.env.WECOM_MESSAGE_PREFIX as string | undefined) || "【需求系统】").toString().trim();
+
+              let content = `${prefix}你提交的需求已处理完成：${demand.title}`;
               content += `\n最终状态：${status}`;
               if (link) {
                 content += `\n查看详情：${link}`;
               }
+
 
               mod
                 .sendWecomAppTextMessage(uniqueIds, content)
