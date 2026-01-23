@@ -290,7 +290,8 @@ export default function ProfilePage() {
               onClick={async () => {
                 setError(null);
                 setSuccess(null);
-                const res = await authorizedFetch("/api/wecom/oauth-url");
+                const res = await authorizedFetch("/api/wecom/bind/start");
+
                 if (!res.ok) {
                   const text = await res.text();
                   console.error("[profile] get wecom oauth url error", text);
