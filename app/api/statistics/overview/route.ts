@@ -253,20 +253,27 @@ export async function GET(req: NextRequest) {
       scoreCoverageRate = covered / executorsCount;
     }
 
-    return NextResponse.json({
-      period: normalizedPeriod,
-      scope,
-      departmentId,
-      metrics: {
-        demandsCreated,
-        demandsCompleted,
-        demandsInProgress,
-        demandsDelayed,
-        avgCycleDays,
-        scoreAvg,
-        scoreCoverageRate,
+    return NextResponse.json(
+      {
+        period: normalizedPeriod,
+        scope,
+        departmentId,
+        metrics: {
+          demandsCreated,
+          demandsCompleted,
+          demandsInProgress,
+          demandsDelayed,
+          avgCycleDays,
+          scoreAvg,
+          scoreCoverageRate,
+        },
       },
-    });
+      {
+        headers: {
+          "Cache-Control": "private, max-age=30, stale-while-revalidate=120",
+        },
+      },
+    );
   } catch (error: any) {
     console.error("[api/statistics/overview] unexpected error", error);
     return NextResponse.json(

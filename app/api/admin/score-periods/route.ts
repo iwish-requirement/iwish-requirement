@@ -68,7 +68,14 @@ export async function GET(req: NextRequest) {
       updatedAt: row.updated_at,
     }));
 
-    return NextResponse.json({ items });
+    return NextResponse.json(
+      { items },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=30, stale-while-revalidate=120",
+        },
+      },
+    );
   } catch (error: any) {
     console.error("[api/admin/score-periods] GET unexpected error", error);
     return NextResponse.json(

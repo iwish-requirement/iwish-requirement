@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest, ensureActiveUser } from "../../../../../lib/serverAuth";
 import { ensureHasAnyPermission } from "../../../../../lib/serverPermissions";
 import type { DepartmentWorkflowConfig, PriorityConfig, StatusConfig } from "../../../../../types";
+import { resolveDepartmentDemandRules } from "../../../../../lib/departmentDemandRules";
 
 
 export const runtime = "edge";
@@ -39,7 +40,7 @@ export async function GET(
 
   const { data: dept, error } = await supabaseAdmin
     .from("departments")
-    .select("id, name, priority_config, status_config")
+    .select("id, name, slug, config, priority_config, status_config")
     .eq("id", departmentId)
     .maybeSingle();
 
@@ -54,13 +55,21 @@ export async function GET(
   const config: DepartmentWorkflowConfig = {
     priorities: (dept.priority_config as PriorityConfig[]) || [],
     statuses: (dept.status_config as StatusConfig[]) || [],
+    rules: resolveDepartmentDemandRules((dept as any).config, (dept as any).slug),
   };
 
-  return NextResponse.json({
-    departmentId: dept.id,
-    departmentName: dept.name,
-    config,
-  });
+  return NextResponse.json(
+    {
+      departmentId: dept.id,
+      departmentName: dept.name,
+      config,
+    },
+    {
+      headers: {
+        "Cache-Control": "private, max-age=60, stale-while-revalidate=300",
+      },
+    },
+  );
 }
 
 /**

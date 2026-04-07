@@ -33,9 +33,17 @@ export interface StatusConfig {
   transitions?: string[]; // Allowed next status values
 }
 
+export interface DepartmentDemandRules {
+  requireLeaderAssignment?: boolean;
+  allowRequesterAssign?: boolean;
+  unassignedStatus?: string;
+  assignedDefaultStatus?: string;
+}
+
 export interface DepartmentWorkflowConfig {
   priorities: PriorityConfig[];
   statuses: StatusConfig[];
+  rules?: DepartmentDemandRules;
 }
 
 export interface Department {
@@ -65,6 +73,8 @@ export interface Demand {
   departmentId: string;
   creatorId: string;
   assigneeId?: string;
+  creatorUserId?: number;
+  assigneeUserId?: number;
   // 更丰富的人员信息（从后端 users 表补充）
   creatorName?: string;
   creatorEmail?: string;

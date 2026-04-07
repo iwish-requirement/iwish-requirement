@@ -4,10 +4,10 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FileText, CheckCircle, Clock, TrendingUp, ArrowRight, AlertCircle, Plus } from 'lucide-react';
 import { DemandStatus, Priority } from '../../types';
-import { getSupabaseClient } from '../../lib/supabase';
 import { hasPermission } from '../../lib/permissions';
 import { authorizedFetch } from '../../lib/authFetch';
 import Badge from '../../components/ui/Badge';
+import { loadClientBusinessUser } from '../../lib/clientBusinessUser';
 
 
 
@@ -229,56 +229,25 @@ export default function Dashboard() {
 
     const loadUserInfo = async () => {
       try {
-        const supabase = getSupabaseClient();
-        const { data } = await supabase.auth.getUser();
-        const authUser = data?.user;
-        if (!authUser?.email || !authUser.id) {
+        const user = await loadClientBusinessUser();
+        if (!user) {
           return;
         }
-        const meta = (authUser.user_metadata || {}) as Record<string, any>;
-        const metaName =
-          (typeof meta.full_name === 'string' && meta.full_name) ||
-          (typeof meta.name === 'string' && meta.name) ||
-          null;
-
-        const res = await fetch('/api/auth/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            authUserId: authUser.id,
-            email: authUser.email,
-            fullName: metaName,
-          }),
-        });
-
-        if (!res.ok) {
-          console.error('dashboard auth sync error', await res.text());
-          return;
-        }
-
-        const json = await res.json();
-        const u = (json.user || {}) as {
-          id?: number;
-          role?: string | null;
-          departmentId?: number | null;
-          departmentName?: string | null;
-          permissions?: PermissionKey[] | null;
-        };
 
         if (cancelled) {
           return;
         }
 
-        const rawRole = u.role ?? 'user';
-        const rawPermissions = Array.isArray(u.permissions)
-          ? (u.permissions as PermissionKey[])
+        const rawRole = user.role ?? 'user';
+        const rawPermissions = Array.isArray(user.permissions)
+          ? (user.permissions as PermissionKey[])
           : undefined;
 
         const next: DashboardUserInfo = {
-          id: typeof u.id === 'number' ? u.id : null,
+          id: typeof user.id === 'number' ? user.id : null,
           role: rawRole,
-          departmentId: (u.departmentId as number | null) ?? null,
-          departmentName: u.departmentName ?? null,
+          departmentId: (user.departmentId as number | null) ?? null,
+          departmentName: user.departmentName ?? null,
           permissions: rawPermissions,
         };
 

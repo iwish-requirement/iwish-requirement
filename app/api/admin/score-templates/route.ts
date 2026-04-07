@@ -147,7 +147,14 @@ export async function GET(req: NextRequest) {
       templates.push(shapeTemplate(row));
     }
 
-    return NextResponse.json({ items: templates });
+    return NextResponse.json(
+      { items: templates },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=30, stale-while-revalidate=120",
+        },
+      },
+    );
   } catch (error: any) {
     console.error("[api/admin/score-templates] GET error", error);
     return NextResponse.json(

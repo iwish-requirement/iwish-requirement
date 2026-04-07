@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
-import { DemandStatus, Priority, Demand } from "../../../../types";
+import { DemandStatus, Priority, Demand, type DepartmentWorkflowConfig } from "../../../../types";
 import { getBusinessUserFromRequest, ensureActiveUser } from "../../../../lib/serverAuth";
+import {
+  resolveAssignedStatusValue,
+  resolveDepartmentDemandRules,
+} from "../../../../lib/departmentDemandRules";
+import { sendWecomAppTextMessage } from "../../../../lib/wecomApp";
 
 export const runtime = "edge";
+
+const DEMAND_DETAIL_SELECT =
+  "id, department_id, creator_id, assignee_id, title, status, priority, fields, created_at, finished_at";
 
 function mapStatus(status: string | null): DemandStatus {
   const value = (status ?? "").toString();
@@ -110,6 +118,91 @@ function mapRowToDemand(row: any): Demand {
   };
 }
 
+async function enrichDemandUsers(demand: Demand, row: any): Promise<Demand> {
+  const [creatorResult, assigneeResult] = await Promise.all([
+    row.creator_id
+      ? supabaseAdmin.from("users").select("name, email").eq("id", row.creator_id).maybeSingle()
+      : Promise.resolve({ data: null, error: null } as any),
+    row.assignee_id
+      ? supabaseAdmin.from("users").select("name, email").eq("id", row.assignee_id).maybeSingle()
+      : Promise.resolve({ data: null, error: null } as any),
+  ]);
+
+  if (creatorResult.error) {
+    console.error("[api/demands/:id] enrich creator error", creatorResult.error);
+  } else if (creatorResult.data) {
+    demand.creatorName = (creatorResult.data.name as string | null) || demand.creatorId;
+    demand.creatorEmail = (creatorResult.data.email as string | null) || undefined;
+  }
+
+  if (assigneeResult.error) {
+    console.error("[api/demands/:id] enrich assignee error", assigneeResult.error);
+  } else if (assigneeResult.data) {
+    demand.assigneeName = (assigneeResult.data.name as string | null) || demand.assigneeId;
+    demand.assigneeEmail = (assigneeResult.data.email as string | null) || undefined;
+  }
+
+  return demand;
+}
+
+async function loadWorkflowConfigForDepartment(
+  departmentId: number | null | undefined,
+): Promise<DepartmentWorkflowConfig | null> {
+  if (!departmentId || !Number.isFinite(departmentId)) {
+    return null;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("departments")
+    .select("priority_config, status_config")
+    .eq("id", departmentId)
+    .maybeSingle();
+
+  if (error || !data) {
+    console.error("[api/demands/:id] load workflow config error", error);
+    return null;
+  }
+
+  return {
+    priorities: (((data as any).priority_config as any[]) || []),
+    statuses: (((data as any).status_config as any[]) || []),
+  };
+}
+
+function resolvePriorityLabelForMessage(
+  rawPriority: string | undefined | null,
+  cfg: DepartmentWorkflowConfig | null,
+): string | null {
+  const value = (rawPriority ?? "").toString();
+  if (!value) return null;
+
+  if (cfg?.priorities?.length) {
+    const found =
+      cfg.priorities.find((item) => item.value === value) ||
+      cfg.priorities.find((item) => item.label === value);
+    if (found) return found.label;
+  }
+
+  return value;
+}
+
+function resolveStatusLabelForMessage(
+  rawStatus: string | undefined | null,
+  cfg: DepartmentWorkflowConfig | null,
+): string | null {
+  const value = (rawStatus ?? "").toString();
+  if (!value) return null;
+
+  if (cfg?.statuses?.length) {
+    const found =
+      cfg.statuses.find((item) => item.value === value) ||
+      cfg.statuses.find((item) => item.label === value);
+    if (found) return found.label;
+  }
+
+  return value;
+}
+
 export async function GET(
   req: NextRequest,
   context: { params: { id: string } }
@@ -123,7 +216,7 @@ export async function GET(
 
     const { data, error } = await supabaseAdmin
       .from("demands")
-      .select("*")
+      .select(DEMAND_DETAIL_SELECT)
       .eq("fields->>code", id)
       .maybeSingle();
 
@@ -205,6 +298,15 @@ export async function PATCH(
   context: { params: { id: string } }
 ) {
   try {
+    const authResult = await getBusinessUserFromRequest(req);
+    if (authResult.errorResponse) {
+      return authResult.errorResponse;
+    }
+    const activeError = ensureActiveUser(authResult.user);
+    if (activeError) {
+      return activeError;
+    }
+
     const id = context.params.id;
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
@@ -217,8 +319,9 @@ export async function PATCH(
     const dueDate = (body.dueDate as string | undefined) || undefined;
     const customFields = (body.customFields as Record<string, any> | undefined) || undefined;
     const status = body.status as string | undefined;
+    const assigneeEmail = (body.assigneeEmail as string | undefined)?.trim();
 
-    if (!title && !description && !priority && !dueDate && !customFields && !status) {
+    if (!title && !description && !priority && !dueDate && !customFields && !status && !assigneeEmail) {
       return NextResponse.json(
         { error: "no fields to update" },
         { status: 400 }
@@ -227,7 +330,7 @@ export async function PATCH(
 
     const { data: existing, error: loadError } = await supabaseAdmin
       .from("demands")
-      .select("*")
+      .select(DEMAND_DETAIL_SELECT)
       .eq("fields->>code", id)
       .maybeSingle();
 
@@ -243,7 +346,32 @@ export async function PATCH(
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
 
+    const { data: department, error: departmentError } = await supabaseAdmin
+      .from("departments")
+      .select("id, slug, config, status_config")
+      .eq("id", existing.department_id)
+      .maybeSingle();
+
+    if (departmentError || !department) {
+      console.error("[api/demands/:id] load department error", departmentError);
+      return NextResponse.json(
+        { error: "failed to load demand department", detail: departmentError?.message },
+        { status: 500 }
+      );
+    }
+
     const fields = { ...(existing.fields || {}) } as any;
+    const workflowRules = resolveDepartmentDemandRules(
+      (department as any).config,
+      (department as any).slug,
+    );
+    const previousAssigneeId =
+      typeof existing.assignee_id === "number" ? (existing.assignee_id as number) : null;
+    let assignedWecomUserId = "";
+    let assignedUserId: number | null = null;
+    const canAssignDemand =
+      authResult.user?.role === "admin" ||
+      (authResult.user?.role === "manager" && authResult.user.departmentId === existing.department_id);
 
     if (description !== undefined) {
       fields.description = description;
@@ -278,6 +406,43 @@ export async function PATCH(
       updates.finished_at = new Date().toISOString();
     }
 
+    if (assigneeEmail) {
+      if (!canAssignDemand) {
+        return NextResponse.json(
+          { error: "forbidden", detail: "only department managers or admins can assign demands" },
+          { status: 403 }
+        );
+      }
+
+      const { data: assigneeUser, error: assigneeError } = await supabaseAdmin
+        .from("users")
+        .select("id, email, name, department_id, wecom_user_id")
+        .eq("email", assigneeEmail)
+        .eq("department_id", existing.department_id)
+        .maybeSingle();
+
+      if (assigneeError || !assigneeUser) {
+        console.error("[api/demands/:id] assign user error", assigneeError);
+        return NextResponse.json(
+          { error: "assignee user not found in this department", detail: assigneeError?.message },
+          { status: 400 }
+        );
+      }
+
+      updates.assignee_id = assigneeUser.id;
+      assignedUserId = assigneeUser.id as number;
+      assignedWecomUserId = ((assigneeUser as any).wecom_user_id || "").toString().trim();
+      fields.assigneeEmail = assigneeEmail;
+      fields.assigneeCode = assigneeEmail.split("@")[0]?.toUpperCase();
+
+      if (!status && existing.status === (workflowRules.unassignedStatus || "unassigned")) {
+        updates.status = resolveAssignedStatusValue(
+          workflowRules,
+          (((department as any).status_config as any[]) || []),
+        );
+      }
+    }
+
     const { data, error } = await supabaseAdmin
       .from("demands")
       .update(updates)
@@ -293,23 +458,62 @@ export async function PATCH(
       );
     }
 
-    const demand = mapRowToDemand(data);
+    const demand = await enrichDemandUsers(mapRowToDemand(data), data);
 
-    if (status && status !== previousStatus) {
+    const nextStatus = ((data.status as string | null) || "").toString();
+
+    if (
+      assignedUserId &&
+      assignedUserId !== previousAssigneeId &&
+      assignedWecomUserId
+    ) {
+      const workflowConfigForMessage = await loadWorkflowConfigForDepartment(
+        data.department_id as number | null | undefined,
+      );
+      const baseUrlEnv =
+        process.env.APP_PUBLIC_URL ||
+        process.env.NEXT_PUBLIC_APP_URL ||
+        process.env.VITE_PUBLIC_URL ||
+        "";
+      const baseUrl = baseUrlEnv.replace(/\/+$/, "");
+      const link = baseUrl && demand.id ? `${baseUrl}/demands/${encodeURIComponent(demand.id)}` : "";
+      const prefix = ((process.env.WECOM_MESSAGE_PREFIX as string | undefined) || "【需求系统】")
+        .toString()
+        .trim();
+      const priorityLabel = resolvePriorityLabelForMessage(demand.priority as any, workflowConfigForMessage);
+      const statusLabel = resolveStatusLabelForMessage(nextStatus || demand.status, workflowConfigForMessage);
+
+      let content = `${prefix}你有一条新的需求被分配待处理：${demand.title}`;
+      if (priorityLabel) {
+        content += `\n优先级：${priorityLabel}`;
+      }
+      if (statusLabel) {
+        content += `\n当前状态：${statusLabel}`;
+      }
+      if (link) {
+        content += `\n查看详情：${link}`;
+      }
+
+      sendWecomAppTextMessage([assignedWecomUserId], content).catch((e) => {
+        console.error("[api/demands/:id] send assignment wecom message error", e);
+      });
+    }
+
+    if (nextStatus && nextStatus !== previousStatus) {
       import("../../../../lib/webhooks").then((mod) => {
         mod
           .enqueueAndDispatchWebhook("demand.status_changed", {
             demand,
             departmentId: data.department_id as number | undefined,
             fromStatus: previousStatus,
-            toStatus: status,
+            toStatus: nextStatus,
           })
           .catch((e) => {
             console.error("[api/demands/:id] enqueue status_changed webhook error", e);
           });
       });
 
-      const normalizedStatus = (status || "").toString().toLowerCase();
+      const normalizedStatus = nextStatus.toLowerCase();
       const isTerminalStatus =
         normalizedStatus === "done" ||
         normalizedStatus === "closed" ||
@@ -341,7 +545,7 @@ export async function PATCH(
               const prefix = ((process.env.WECOM_MESSAGE_PREFIX as string | undefined) || "【需求系统】").toString().trim();
 
               let content = `${prefix}你提交的需求已处理完成：${demand.title}`;
-              content += `\n最终状态：${status}`;
+              content += `\n最终状态：${nextStatus}`;
               if (link) {
                 content += `\n查看详情：${link}`;
               }

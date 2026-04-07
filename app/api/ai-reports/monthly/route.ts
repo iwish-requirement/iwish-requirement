@@ -537,15 +537,22 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({
-      report,
-      meta: {
-        period: normalizedPeriod,
-        departmentId,
-        canSwitchDepartment,
-        departments: departmentOptions,
+    return NextResponse.json(
+      {
+        report,
+        meta: {
+          period: normalizedPeriod,
+          departmentId,
+          canSwitchDepartment,
+          departments: departmentOptions,
+        },
       },
-    });
+      {
+        headers: {
+          "Cache-Control": "private, max-age=60, stale-while-revalidate=300",
+        },
+      },
+    );
 
   } catch (error: any) {
     console.error("[api/ai-reports/monthly] GET unexpected error", error);

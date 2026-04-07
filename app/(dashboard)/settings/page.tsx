@@ -18,8 +18,8 @@ import {
 import { Department, FieldDefinition, FieldType } from "../../../types";
 import Modal from "../../../components/ui/Modal";
 import { authorizedFetch } from "../../../lib/authFetch";
-import { getSupabaseClient } from "../../../lib/supabase";
 import { hasPermission, type PermissionKey } from "../../../lib/permissions";
+import { loadClientBusinessUser } from "../../../lib/clientBusinessUser";
 import UserManagementSettings from "./UserManagementSettings";
 import RolePermissionOverview from "./RolePermissionOverview";
 import WebhookSettings from "./WebhookSettings";
@@ -48,39 +48,13 @@ export default function AdminPage() {
     const loadPermissions = async () => {
       try {
         setLoadingPermissions(true);
-        const supabase = getSupabaseClient();
-        const { data } = await supabase.auth.getUser();
-        const authUser = data?.user;
-
-        if (!authUser?.email || !authUser.id) {
+        const user = await loadClientBusinessUser();
+        if (!user) {
           setEffectivePermissions([]);
           return;
         }
 
-        const meta = (authUser.user_metadata || {}) as Record<string, any>;
-        const metaName =
-          (typeof meta.full_name === "string" && meta.full_name) ||
-          (typeof meta.name === "string" && meta.name) ||
-          null;
-
-        const res = await fetch("/api/auth/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            authUserId: authUser.id,
-            email: authUser.email,
-            fullName: metaName,
-          }),
-        });
-
-        if (!res.ok) {
-          console.error("load settings permissions error", await res.text());
-          setEffectivePermissions([]);
-          return;
-        }
-
-        const json = await res.json();
-        const perms = (json?.user?.permissions || []) as unknown;
+        const perms = user.permissions as unknown;
         setEffectivePermissions(Array.isArray(perms) ? (perms as PermissionKey[]) : []);
       } catch (e) {
         console.error("load settings permissions error", e);
@@ -237,7 +211,7 @@ export default function AdminPage() {
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden min-h-[600px] flex flex-col md:flex-row">
         {/* 左侧 Tab 导航 */}
-        <div className="w-full md:w-64 border-b md:border-b-0 md:border-r border-slate-200 bg-slate-50 p-4">
+        <div className="w-full md:w-64 md:flex-shrink-0 border-b md:border-b-0 md:border-r border-slate-200 bg-slate-50 p-4">
           <nav className="flex md:flex-col space-x-2 md:space-x-0 md:space-y-2 overflow-x-auto">
             {visibleTabs.map((tab) => (
               <button
@@ -261,7 +235,7 @@ export default function AdminPage() {
         </div>
 
         {/* 右侧内容区域 */}
-        <div className="flex-1 p-6 md:p-10 bg-white">
+        <div className="flex-1 min-w-0 p-4 sm:p-6 md:p-10 bg-white overflow-x-hidden">
           {loadingPermissions && (
             <div className="text-sm text-slate-400">正在加载权限信息...</div>
           )}
@@ -739,14 +713,14 @@ const WorkflowConfigSettingsLegacy1 = ({ canManage }: { canManage: boolean }) =>
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-6">
         <h2 className="text-xl font-bold text-slate-900">工作流配置</h2>
         <div className="flex items-center gap-3">
           <span className="text-xs text-slate-500">选择部门</span>
           <select
             value={selectedDeptId}
             onChange={(e) => setSelectedDeptId(e.target.value)}
-            className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none min-w-[200px]"
+            className="w-full sm:w-auto sm:min-w-[200px] max-w-full px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
           >
             {departments.map((d) => (
               <option key={d.id} value={d.id}>
@@ -1178,7 +1152,7 @@ const DepartmentManagement = ({ canManage }: { canManage: boolean }) => {
         <div className="mb-3 text-sm text-slate-400">正在加载部门列表...</div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {departments.map((dept) => (
           <div
             key={dept.id}
@@ -1546,7 +1520,7 @@ const WorkflowConfigSettingsLegacy2 = ({ canManage }: { canManage: boolean }) =>
           <select
             value={selectedDeptId}
             onChange={(e) => setSelectedDeptId(e.target.value)}
-            className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none min-w-[200px]"
+            className="w-full sm:w-auto sm:min-w-[200px] max-w-full px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
           >
             {departments.map((d) => (
               <option key={d.id} value={d.id}>
@@ -2059,7 +2033,7 @@ const FieldTemplates = ({ canManage }: { canManage: boolean }) => {
           <select
             value={selectedDept}
             onChange={(e) => setSelectedDept(e.target.value)}
-            className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none min-w-[200px]"
+            className="w-full sm:w-auto sm:min-w-[200px] max-w-full px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
           >
             {departments.map((d) => (
               <option key={d.id} value={d.id}>
@@ -2565,7 +2539,7 @@ const WorkflowConfigSettingsLegacy3 = ({ canManage }: { canManage: boolean }) =>
           <select
             value={selectedDeptId}
             onChange={(e) => setSelectedDeptId(e.target.value)}
-            className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none min-w-[200px]"
+            className="w-full sm:w-auto sm:min-w-[200px] max-w-full px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
           >
             {departments.map((d) => (
               <option key={d.id} value={d.id}>
@@ -3030,7 +3004,7 @@ const ScorePeriodsSettings = ({ canManage }: { canManage: boolean }) => {
         <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
           <Star className="w-5 h-5 text-blue-500" /> 评分周期配置
         </h2>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3">
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500">筛选年份</span>
             <input
@@ -3070,7 +3044,7 @@ const ScorePeriodsSettings = ({ canManage }: { canManage: boolean }) => {
       )}
 
       <div className="border border-slate-200 rounded-xl overflow-hidden">
-        <div className="grid grid-cols-12 gap-2 px-4 py-2 text-xs font-bold text-slate-500 bg-slate-50 border-b border-slate-200">
+        <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2 text-xs font-bold text-slate-500 bg-slate-50 border-b border-slate-200">
           <div className="col-span-2">服务月 (period)</div>
           <div className="col-span-4">评分窗口开始时间</div>
           <div className="col-span-4">评分窗口结束时间</div>
@@ -3371,7 +3345,7 @@ const WorkflowConfigSettingsLegacy4 = ({ canManage }: { canManage: boolean }) =>
           <select
             value={selectedDeptId}
             onChange={(e) => setSelectedDeptId(e.target.value)}
-            className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none min-w-[200px]"
+            className="w-full sm:w-auto sm:min-w-[200px] max-w-full px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
           >
             {departments.map((d) => (
               <option key={d.id} value={d.id}>
@@ -3873,7 +3847,7 @@ const ScoringTemplates = ({ canManage }: { canManage: boolean }) => {
               setError(null);
               setSuccess(null);
             }}
-            className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none min-w-[200px]"
+            className="w-full sm:w-auto sm:min-w-[200px] max-w-full px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
           >
             {departments.map((d) => (
               <option key={d.id} value={d.id}>
@@ -4225,7 +4199,7 @@ const WorkflowConfigSettings = ({ canManage }: { canManage: boolean }) => {
           <select
             value={selectedDeptId}
             onChange={(e) => setSelectedDeptId(e.target.value)}
-            className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none min-w-[200px]"
+            className="w-full sm:w-auto sm:min-w-[200px] max-w-full px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
           >
             {departments.map((d) => (
               <option key={d.id} value={d.id}>

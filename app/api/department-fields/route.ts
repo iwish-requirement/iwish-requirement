@@ -191,7 +191,14 @@ export async function GET(req: NextRequest) {
       if ("errorBody" in tplResult) {
         return NextResponse.json(tplResult.errorBody, { status: tplResult.status });
       }
-      return NextResponse.json({ items: [], templateId: null });
+      return NextResponse.json(
+        { items: [], templateId: null },
+        {
+          headers: {
+            "Cache-Control": "private, max-age=60, stale-while-revalidate=300",
+          },
+        },
+      );
     }
 
     const templateId = tplResult.templateId as number;
@@ -213,7 +220,14 @@ export async function GET(req: NextRequest) {
 
     const items = (data || []).map(mapRowToField);
 
-    return NextResponse.json({ items, templateId });
+    return NextResponse.json(
+      { items, templateId },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=60, stale-while-revalidate=300",
+        },
+      },
+    );
   } catch (error: any) {
     console.error("[api/department-fields] error", error);
     return NextResponse.json(

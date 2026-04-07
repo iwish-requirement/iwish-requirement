@@ -6,6 +6,7 @@ import { Plus, Download, Search, Sparkles, Calendar, User } from "lucide-react";
 import { DemandStatus, Priority, Department, Demand, FieldDefinition, type DepartmentWorkflowConfig } from "../../../types";
 import { getSupabaseClient } from "../../../lib/supabase";
 import { authorizedFetch } from "../../../lib/authFetch";
+import { loadClientBusinessUser } from "../../../lib/clientBusinessUser";
 import Badge from "../../../components/ui/Badge";
 import Modal from "../../../components/ui/Modal";
 
@@ -59,6 +60,8 @@ const mapRealtimeRowToDemand = (row: any): Demand => {
     departmentId,
     creatorId,
     assigneeId,
+    creatorUserId: typeof row.creator_id === "number" ? (row.creator_id as number) : undefined,
+    assigneeUserId: typeof row.assignee_id === "number" ? (row.assignee_id as number) : undefined,
     status,
     priority,
     createdAt,
@@ -71,6 +74,7 @@ export default function DemandsPage() {
 
   const router = useRouter();
 
+  const [relationshipView, setRelationshipView] = useState<"all" | "created" | "assigned">("all");
   const [selectedDept, setSelectedDept] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [selectedPriority, setSelectedPriority] = useState<string>("all");
@@ -84,6 +88,8 @@ export default function DemandsPage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [demands, setDemands] = useState<Demand[]>([]);
   const [currentUserCode, setCurrentUserCode] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [currentUserPermissions, setCurrentUserPermissions] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [total, setTotal] = useState(0);
@@ -129,6 +135,7 @@ export default function DemandsPage() {
     setSelectedPriority("all");
     setWorkflowConfig(null);
     setOnlyMyCreated(false);
+    setRelationshipView("all");
     setSearchQuery("");
     setCreatedFrom("");
     setCreatedTo("");
@@ -166,21 +173,32 @@ export default function DemandsPage() {
   }, []);
 
   useEffect(() => {
-    const supabase = getSupabaseClient();
-    supabase.auth
-      .getUser()
-      .then(({ data }) => {
-        const email = data?.user?.email || "";
+    const loadCurrentUser = async () => {
+      try {
+        const user = await loadClientBusinessUser();
+        const email = user?.email || "";
         if (email) {
           const code = email.split("@")[0]?.toUpperCase() || "";
           if (code) {
             setCurrentUserCode(code);
           }
         }
-      })
-      .catch((e) => {
+
+        if (!user) {
+          return;
+        }
+        if (typeof user.id === "number") {
+          setCurrentUserId(user.id);
+        }
+        if (Array.isArray(user.permissions)) {
+          setCurrentUserPermissions(user.permissions);
+        }
+      } catch (e) {
         console.error("load current user error", e);
-      });
+      }
+    };
+
+    loadCurrentUser();
   }, []);
 
   useEffect(() => {
@@ -290,8 +308,17 @@ export default function DemandsPage() {
         if (selectedPriority !== "all") {
           params.set("priority", selectedPriority);
         }
+        const createdByMe = relationshipView === "created";
+        const assignedToMe = relationshipView === "assigned";
+
         if (onlyMyCreated && currentUserCode) {
           params.set("creatorCode", currentUserCode);
+        }
+        if (createdByMe && currentUserId) {
+          params.set("creatorUserId", String(currentUserId));
+        }
+        if (assignedToMe && currentUserId) {
+          params.set("assigneeUserId", String(currentUserId));
         }
         if (creatorUserId) {
           params.set("creatorUserId", creatorUserId);
@@ -343,6 +370,9 @@ export default function DemandsPage() {
     if (onlyMyCreated && !currentUserCode) {
       return;
     }
+    if ((relationshipView === "created" || relationshipView === "assigned") && !currentUserId) {
+      return;
+    }
 
     fetchDemands();
 
@@ -352,8 +382,10 @@ export default function DemandsPage() {
     selectedDept,
     selectedStatus,
     selectedPriority,
+    relationshipView,
     onlyMyCreated,
     currentUserCode,
+    currentUserId,
     creatorUserId,
     assigneeUserId,
     dynamicFilters,
@@ -364,117 +396,9 @@ export default function DemandsPage() {
     dueFrom,
     dueTo,
   ]);
-
-  useEffect(() => {
-    if (page !== 1) {
-      return;
-    }
-
-    const controller = new AbortController();
-
-    const poll = async () => {
-      try {
-        if (typeof document !== "undefined" && document.visibilityState !== "visible") {
-          return;
-        }
-
-        const params = new URLSearchParams();
-        if (searchQuery.trim()) {
-          params.set("q", searchQuery.trim());
-        }
-        if (selectedDept !== "all") {
-          params.set("departmentId", selectedDept);
-        }
-        if (selectedStatus !== "all") {
-          params.set("status", selectedStatus);
-        }
-        if (selectedPriority !== "all") {
-          params.set("priority", selectedPriority);
-        }
-        if (onlyMyCreated && currentUserCode) {
-          params.set("creatorCode", currentUserCode);
-        }
-        if (creatorUserId) {
-          params.set("creatorUserId", creatorUserId);
-        }
-        if (assigneeUserId) {
-          params.set("assigneeUserId", assigneeUserId);
-        }
-        if (createdFrom) {
-          params.set("createdFrom", createdFrom);
-        }
-        if (createdTo) {
-          params.set("createdTo", createdTo);
-        }
-        if (dueFrom) {
-          params.set("dueFrom", dueFrom);
-        }
-        if (dueTo) {
-          params.set("dueTo", dueTo);
-        }
-        Object.entries(dynamicFilters).forEach(([fieldId, value]) => {
-          if (!value) return;
-          params.set(`cf_${fieldId}`, value);
-        });
-        params.set("page", "1");
-        params.set("pageSize", String(pageSize));
-
-        const qs = params.toString();
-        const res = await authorizedFetch(`/api/demands${qs ? `?${qs}` : ""}`, {
-          signal: controller.signal,
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          console.error("poll demands error", text);
-          return;
-        }
-        const json = await res.json();
-        const items = (json.items || []) as Demand[];
-        setDemands(items);
-        setTotal(json.total ?? 0);
-      } catch (e: any) {
-        if (e?.name === "AbortError") return;
-        console.error("poll demands error", e);
-      }
-    };
-
-    const intervalId = window.setInterval(poll, 3000);
-
-
-    return () => {
-      window.clearInterval(intervalId);
-      controller.abort();
-    };
-  }, [
-    searchQuery,
-    selectedDept,
-    selectedStatus,
-    selectedPriority,
-    onlyMyCreated,
-    currentUserCode,
-    creatorUserId,
-    assigneeUserId,
-    dynamicFilters,
-    createdFrom,
-    createdTo,
-    dueFrom,
-    dueTo,
-    page,
-    pageSize,
-  ]);
-
 
   useEffect(() => {
     const supabase = getSupabaseClient();
-
-    console.log("[demands realtime] setup channel", {
-      selectedDept,
-      selectedStatus,
-      selectedPriority,
-      onlyMyCreated,
-      creatorUserId,
-      assigneeUserId,
-    });
 
     const channel = supabase
       .channel("demands-list-realtime")
@@ -486,18 +410,28 @@ export default function DemandsPage() {
           table: "demands",
         } as any,
         (payload) => {
-          console.log("[demands realtime] INSERT payload", payload);
           const row = (payload as any).new;
           if (!row) {
             return;
           }
           const mapped = mapRealtimeRowToDemand(row);
 
+          const createdByMe = relationshipView === "created";
+          const assignedToMe = relationshipView === "assigned";
+
           if (onlyMyCreated && currentUserCode) {
             const creatorCode = (mapped.creatorId || "").toString().toUpperCase();
             if (creatorCode !== currentUserCode.toUpperCase()) {
               return;
             }
+          }
+
+          if (createdByMe && currentUserId && mapped.creatorUserId !== currentUserId) {
+            return;
+          }
+
+          if (assignedToMe && currentUserId && mapped.assigneeUserId !== currentUserId) {
+            return;
           }
 
           if (selectedStatus !== "all" && mapped.status !== selectedStatus) {
@@ -536,12 +470,30 @@ export default function DemandsPage() {
       .on(
         "postgres_changes",
         {
+          event: "UPDATE",
+          schema: "public",
+          table: "demands",
+        } as any,
+        (payload) => {
+          const row = (payload as any).new;
+          if (!row) {
+            return;
+          }
+
+          const mapped = mapRealtimeRowToDemand(row);
+          setDemands((prev) =>
+            prev.map((item) => (item.id === mapped.id ? { ...item, ...mapped } : item))
+          );
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
           event: "DELETE",
           schema: "public",
           table: "demands",
         } as any,
         (payload) => {
-          console.log("[demands realtime] DELETE payload", payload);
           const row = (payload as any).old;
           if (!row) {
             return;
@@ -568,8 +520,10 @@ export default function DemandsPage() {
     selectedDept,
     selectedStatus,
     selectedPriority,
+    relationshipView,
     onlyMyCreated,
     currentUserCode,
+    currentUserId,
     creatorUserId,
     assigneeUserId,
     searchQuery,
@@ -600,6 +554,8 @@ export default function DemandsPage() {
     const normalized: DemandStatus = (() => {
       // 支持英文数据库值和中文旧值
       switch (status) {
+        case "unassigned":
+          return "待负责人分配" as DemandStatus;
         case "pending":
           return DemandStatus.PENDING;
         case "in_progress":
@@ -634,9 +590,17 @@ export default function DemandsPage() {
     return <Badge variant={variant}>{labelOverride || normalized}</Badge>;
   };
 
+  const normalizeStatusLabel = (label?: string | null) => {
+    const value = (label || "").toString();
+    if (value === "unassigned") {
+      return "待负责人分配";
+    }
+    return value;
+  };
+
   const renderStatusBadge = (demand: Demand) => {
     const rawStatus = (demand.status as string) || "";
-    const labelFromApi = demand.statusLabel || "";
+    const labelFromApi = normalizeStatusLabel(demand.statusLabel || "");
     const colorFromApi = demand.statusColor || "";
 
     if (labelFromApi && colorFromApi) {
@@ -697,6 +661,27 @@ export default function DemandsPage() {
     );
   };
 
+  const renderRelationshipBadges = (demand: Demand) => {
+    let label = "";
+    if (currentUserId && demand.assigneeUserId === currentUserId) {
+      label = "待我处理";
+    } else if (currentUserId && demand.creatorUserId === currentUserId) {
+      label = "我提交";
+    }
+
+    if (!label) {
+      return null;
+    }
+
+    return (
+      <div className="mt-2">
+        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+          {label}
+        </span>
+      </div>
+    );
+  };
+
 
   const allPriorityOptions = React.useMemo(
     () => {
@@ -736,6 +721,35 @@ export default function DemandsPage() {
     },
     [selectedDept, workflowConfig]
   );
+
+  const canViewAllDemands = currentUserPermissions.includes("demand.view_all");
+  const canViewDepartmentDemands = currentUserPermissions.includes("demand.view_department");
+  const canViewPersonalDemands = currentUserPermissions.includes("demand.view_personal");
+  const availableRelationshipViews = React.useMemo(() => {
+    const views: Array<{ key: "all" | "created" | "assigned"; label: string }> = [];
+    if (canViewAllDemands || canViewDepartmentDemands) {
+      views.push({ key: "all", label: "全部需求" });
+    }
+    if (canViewPersonalDemands) {
+      views.push({ key: "created", label: "我提交的" });
+      views.push({ key: "assigned", label: "指派给我的" });
+    }
+    return views;
+  }, [canViewAllDemands, canViewDepartmentDemands, canViewPersonalDemands]);
+
+  useEffect(() => {
+    if (!availableRelationshipViews.length) {
+      return;
+    }
+
+    const canKeepCurrent = availableRelationshipViews.some((item) => item.key === relationshipView);
+    if (canKeepCurrent) {
+      return;
+    }
+
+    const preferred = availableRelationshipViews.find((item) => item.key === "assigned");
+    setRelationshipView((preferred?.key || availableRelationshipViews[0].key) as "all" | "created" | "assigned");
+  }, [availableRelationshipViews, relationshipView]);
 
 
   const maxPage = Math.max(1, Math.ceil(total / pageSize));
@@ -909,6 +923,12 @@ export default function DemandsPage() {
                 if (selectedPriority !== "all") {
                   params.set("priority", selectedPriority);
                 }
+                if (relationshipView === "created" && currentUserId) {
+                  params.set("creatorUserId", String(currentUserId));
+                }
+                if (relationshipView === "assigned" && currentUserId) {
+                  params.set("assigneeUserId", String(currentUserId));
+                }
                 if (onlyMyCreated && currentUserCode) {
                   params.set("creatorCode", currentUserCode);
                 }
@@ -970,6 +990,28 @@ export default function DemandsPage() {
           </button>
         </div>
       </div>
+
+      {availableRelationshipViews.length > 0 && (
+        <div className="mb-6 flex flex-wrap gap-2">
+          {availableRelationshipViews.map((view) => (
+            <button
+              key={view.key}
+              type="button"
+              onClick={() => {
+                setRelationshipView(view.key);
+                setPage(1);
+              }}
+              className={`px-4 py-2 text-sm font-bold rounded-full border transition-colors ${
+                relationshipView === view.key
+                  ? "bg-slate-900 text-white border-slate-900"
+                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              {view.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* 顶部筛选区域，响应式布局优化 */}
       {/* 移动端：改为抽屉按钮 */}
@@ -1287,7 +1329,7 @@ export default function DemandsPage() {
                 >
                   清除筛选
                 </button>
-                <button
+                {relationshipView === "all" && <button
                   type="button"
                   onClick={() => {
                     setOnlyMyCreated((prev) => !prev);
@@ -1300,7 +1342,7 @@ export default function DemandsPage() {
                   }`}
                 >
                   只看我提交的
-                </button>
+                </button>}
               </div>
             </div>
           </div>
@@ -1348,6 +1390,7 @@ export default function DemandsPage() {
                       <div className="text-sm text-slate-500 truncate max-w-[260px]">
                         {demand.description}
                       </div>
+                      {renderRelationshipBadges(demand)}
                     </td>
                     <td className="px-6 py-5 whitespace-nowrap">
                       <div className="flex items-center justify-center gap-2">
@@ -1663,7 +1706,7 @@ export default function DemandsPage() {
                     >
                       清除筛选
                     </button>
-                    <button
+                    {relationshipView === 'all' && <button
                       type="button"
                       onClick={() => {
                         setOnlyMyCreated((prev) => !prev);
@@ -1676,7 +1719,7 @@ export default function DemandsPage() {
                       }`}
                     >
                       只看我提交的
-                    </button>
+                    </button>}
                   </div>
                   <button
                     type="button"
@@ -1719,6 +1762,7 @@ export default function DemandsPage() {
               </div>
               <h3 className="text-lg font-bold text-slate-900 mb-2">{demand.title}</h3>
               <p className="text-sm text-slate-500 mb-4 line-clamp-2">{demand.description}</p>
+              {renderRelationshipBadges(demand)}
 
               <div className="flex flex-col gap-2 pt-4 border-t border-slate-100 text-sm text-slate-600">
                 <div className="flex items-center gap-2">

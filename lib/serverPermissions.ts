@@ -5,7 +5,15 @@ import { PERMISSIONS, type PermissionKey } from "./permissions";
 
 import { ensureActiveUser } from "./serverAuth";
 
+const PERMISSION_CACHE_TTL_MS = 60 * 1000;
+const permissionCache = new Map<number, { permissions: PermissionKey[]; expiresAt: number }>();
+
 async function loadDbPermissionsForUser(userId: number): Promise<PermissionKey[]> {
+  const cached = permissionCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.permissions;
+  }
+
   const { data: userRoleRows, error: userRoleError } = await supabaseAdmin
     .from("user_roles")
     .select("role_id")
@@ -84,7 +92,13 @@ async function loadDbPermissionsForUser(userId: number): Promise<PermissionKey[]
   });
 
 
-  return Array.from(collected);
+  const permissions = Array.from(collected);
+  permissionCache.set(userId, {
+    permissions,
+    expiresAt: Date.now() + PERMISSION_CACHE_TTL_MS,
+  });
+
+  return permissions;
 }
 
 export async function loadEffectivePermissionsForUser(user: BusinessUser): Promise<PermissionKey[]> {
