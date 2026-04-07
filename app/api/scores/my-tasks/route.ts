@@ -37,7 +37,6 @@ type ScorePeriodConfigRow = {
 };
 
 type NormalizedStatus = "pending" | "completed" | "missed" | "reminded";
-
 type ScoreWindowPhase = "not_started" | "open" | "closed" | "unknown";
 
 function parsePeriod(period: string): { year: number; monthIndex: number } | null {
@@ -58,29 +57,27 @@ function computeDefaultWindowForPeriod(period: string): { start: string; end: st
   if (!parsed) {
     return null;
   }
+
   const { year, monthIndex } = parsed;
-
-  const lastDayOfMonth = new Date(Date.UTC(year, monthIndex + 1, 0, 0, 0, 0, 0));
-  const defaultStart = lastDayOfMonth;
-
+  const defaultStart = new Date(Date.UTC(year, monthIndex + 1, 0, 0, 0, 0, 0));
   const defaultEnd = new Date(Date.UTC(year, monthIndex + 1, 5, 23, 59, 59, 999));
 
-  const startIso = defaultStart.toISOString();
-  const endIso = defaultEnd.toISOString();
-
-  return { start: startIso, end: endIso };
+  return {
+    start: defaultStart.toISOString(),
+    end: defaultEnd.toISOString(),
+  };
 }
 
 function getDefaultPeriodFromDate(now: Date): string {
   const year = now.getFullYear();
-  const monthIndex = now.getMonth();
-  const month = `${monthIndex + 1}`.padStart(2, "0");
+  const month = `${now.getMonth() + 1}`.padStart(2, "0");
   return `${year}-${month}`;
 }
 
-async function getCurrentPeriodFromConfigOrDefault(periodFromQuery: string | null): Promise<{ period: string; windowStart: string | null; windowEnd: string | null; phase: ScoreWindowPhase }> {
+async function getCurrentPeriodFromConfigOrDefault(
+  periodFromQuery: string | null,
+): Promise<{ period: string; windowStart: string | null; windowEnd: string | null; phase: ScoreWindowPhase }> {
   const now = new Date();
-
   const normalizedPeriod =
     periodFromQuery && /^\d{4}-\d{2}$/.test(periodFromQuery.trim())
       ? periodFromQuery.trim()
@@ -101,9 +98,13 @@ async function getCurrentPeriodFromConfigOrDefault(periodFromQuery: string | nul
       console.error("[api/scores/my-tasks] load score_periods error", error);
     }
 
-    if (data && data.period) {
+    if (data?.period) {
       windowStart = data.score_window_start;
       windowEnd = data.score_window_end;
+
+      if (typeof data.status === "string" && data.status.toLowerCase() === "closed") {
+        phase = "closed";
+      }
     }
   } catch (error) {
     console.error("[api/scores/my-tasks] load score_periods unexpected error", error);
@@ -117,7 +118,7 @@ async function getCurrentPeriodFromConfigOrDefault(periodFromQuery: string | nul
     }
   }
 
-  if (windowStart && windowEnd) {
+  if (phase !== "closed" && windowStart && windowEnd) {
     const startTime = new Date(windowStart);
     const endTime = new Date(windowEnd);
     if (!Number.isNaN(startTime.getTime()) && !Number.isNaN(endTime.getTime())) {
@@ -129,23 +130,6 @@ async function getCurrentPeriodFromConfigOrDefault(periodFromQuery: string | nul
         phase = "open";
       }
     }
-  }
-
-  try {
-    const { data } = await supabaseAdmin
-      .from("score_periods")
-      .select("status")
-      .eq("period", normalizedPeriod)
-      .maybeSingle<Pick<ScorePeriodConfigRow, "status">>();
-
-    if (data && typeof data.status === "string") {
-      const normalizedStatus = data.status.toLowerCase();
-      if (normalizedStatus === "closed") {
-        phase = "closed";
-      }
-    }
-  } catch (error) {
-    console.error("[api/scores/my-tasks] override phase by status error", error);
   }
 
   return {
@@ -164,6 +148,21 @@ function normalizeStatus(raw: string | null | undefined): NormalizedStatus {
   return "pending";
 }
 
+async function loadTasksForScorerPeriod(userId: number, period: string): Promise<RawScoreTaskRow[]> {
+  const { data, error } = await supabaseAdmin
+    .from("score_tasks")
+    .select("id, period, scorer_id, target_user_id, department_id, template_id, status, created_at, completed_at")
+    .eq("scorer_id", userId)
+    .eq("period", period)
+    .order("created_at", { ascending: true })
+    .returns<RawScoreTaskRow[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? [];
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -180,21 +179,10 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const periodParam = url.searchParams.get("period");
     const taskIdParam = url.searchParams.get("taskId");
-
     const periodFromQuery = periodParam && periodParam.trim() ? periodParam.trim() : null;
 
     let currentConfig = await getCurrentPeriodFromConfigOrDefault(periodFromQuery);
     let period = currentConfig.period;
-
-
-
-    const email = (currentUser.email || "").toString();
-    const creatorCode = email ? email.split("@")[0]?.toUpperCase() || null : null;
-
-    if (!taskIdParam) {
-      await ensureScoreTasksForUserPeriod(currentUser.id, creatorCode, period);
-    }
-
     let tasks: RawScoreTaskRow[] = [];
 
     if (taskIdParam) {
@@ -235,71 +223,70 @@ export async function GET(req: NextRequest) {
       }
 
       tasks = [data];
-      currentConfig = await getCurrentPeriodFromConfigOrDefault(data.period);
-      period = currentConfig.period;
+      if (data.period !== currentConfig.period) {
+        currentConfig = await getCurrentPeriodFromConfigOrDefault(data.period);
+      }
+      period = data.period;
     } else {
-
-      const { data, error } = await supabaseAdmin
-        .from("score_tasks")
-        .select("id, period, scorer_id, target_user_id, department_id, template_id, status, created_at, completed_at")
-        .eq("scorer_id", currentUser.id)
-        .eq("period", period)
-        .order("created_at", { ascending: true })
-        .returns<RawScoreTaskRow[]>();
-
-      if (error) {
+      try {
+        tasks = await loadTasksForScorerPeriod(currentUser.id, period);
+      } catch (error: any) {
         console.error("[api/scores/my-tasks] query error", error);
         return NextResponse.json(
-          { error: "failed_to_load_tasks", detail: error.message },
+          { error: "failed_to_load_tasks", detail: error?.message ?? String(error) },
           { status: 500 },
         );
       }
 
-      tasks = data ?? [];
+      if (tasks.length === 0) {
+        const email = (currentUser.email || "").toString();
+        const creatorCode = email ? email.split("@")[0]?.toUpperCase() || null : null;
+        await ensureScoreTasksForUserPeriod(currentUser.id, creatorCode, period);
+
+        try {
+          tasks = await loadTasksForScorerPeriod(currentUser.id, period);
+        } catch (error: any) {
+          console.error("[api/scores/my-tasks] query after ensure error", error);
+          return NextResponse.json(
+            { error: "failed_to_load_tasks", detail: error?.message ?? String(error) },
+            { status: 500 },
+          );
+        }
+      }
     }
 
     if (!tasks.length) {
-      return NextResponse.json({
-        period,
-        scoringWindow: {
-          start: currentConfig.windowStart,
-          end: currentConfig.windowEnd,
-          phase: currentConfig.phase,
+      return NextResponse.json(
+        {
+          period,
+          scoringWindow: {
+            start: currentConfig.windowStart,
+            end: currentConfig.windowEnd,
+            phase: currentConfig.phase,
+          },
+          items: [],
         },
-        items: [],
-      });
+        {
+          headers: {
+            "Cache-Control": "private, max-age=30, stale-while-revalidate=120",
+          },
+        },
+      );
     }
 
-
     const departmentIds = Array.from(
-      new Set(
-        tasks
-          .map((t) => t.department_id)
-          .filter((id) => typeof id === "number" && id > 0),
-      ),
+      new Set(tasks.map((task) => task.department_id).filter((id) => typeof id === "number" && id > 0)),
     );
     const targetUserIds = Array.from(
-      new Set(
-        tasks
-          .map((t) => t.target_user_id)
-          .filter((id) => typeof id === "number" && id > 0),
-      ),
+      new Set(tasks.map((task) => task.target_user_id).filter((id) => typeof id === "number" && id > 0)),
     );
 
     const [departmentsResult, usersResult] = await Promise.all([
       departmentIds.length
-        ? supabaseAdmin
-            .from("departments")
-            .select("id, name")
-            .in("id", departmentIds)
-            .returns<DepartmentRow[]>()
+        ? supabaseAdmin.from("departments").select("id, name").in("id", departmentIds).returns<DepartmentRow[]>()
         : Promise.resolve({ data: [] as DepartmentRow[], error: null }),
       targetUserIds.length
-        ? supabaseAdmin
-            .from("users")
-            .select("id, name, email, role")
-            .in("id", targetUserIds)
-            .returns<UserRow[]>()
+        ? supabaseAdmin.from("users").select("id, name, email, role").in("id", targetUserIds).returns<UserRow[]>()
         : Promise.resolve({ data: [] as UserRow[], error: null }),
     ]);
 
@@ -321,30 +308,24 @@ export async function GET(req: NextRequest) {
 
     const deptMap = new Map<number, DepartmentRow>();
     for (const dept of departmentsResult.data ?? []) {
-      if (typeof dept.id === "number") {
-        deptMap.set(dept.id, dept);
-      }
+      deptMap.set(dept.id, dept);
     }
 
     const userMap = new Map<number, UserRow>();
     for (const user of usersResult.data ?? []) {
-      if (typeof user.id === "number") {
-        userMap.set(user.id, user);
-      }
+      userMap.set(user.id, user);
     }
 
     const items = tasks.map((task) => {
       const department = deptMap.get(task.department_id);
       const targetUser = userMap.get(task.target_user_id);
-      const status = normalizeStatus(task.status);
-
       const targetName =
         (targetUser?.name ?? "").trim() || (targetUser?.email ?? "").trim() || "未命名用户";
 
       return {
         id: task.id,
         period: task.period,
-        status,
+        status: normalizeStatus(task.status),
         departmentId: task.department_id,
         departmentName: department?.name ?? null,
         targetUserId: task.target_user_id,
@@ -357,16 +338,22 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({
-      period,
-      scoringWindow: {
-        start: currentConfig.windowStart,
-        end: currentConfig.windowEnd,
-        phase: currentConfig.phase,
+    return NextResponse.json(
+      {
+        period,
+        scoringWindow: {
+          start: currentConfig.windowStart,
+          end: currentConfig.windowEnd,
+          phase: currentConfig.phase,
+        },
+        items,
       },
-      items,
-    });
-
+      {
+        headers: {
+          "Cache-Control": "private, max-age=30, stale-while-revalidate=120",
+        },
+      },
+    );
   } catch (error: any) {
     console.error("[api/scores/my-tasks] unexpected error", error);
     return NextResponse.json(

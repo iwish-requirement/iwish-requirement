@@ -89,41 +89,69 @@ export async function POST(req: NextRequest) {
     if (existing) {
       const nextRole = normalizeRole(existing.role);
       const nextStatus = normalizeStatus(existing.status);
+      const existingName = (existing.name as string | null) ?? null;
+      const existingAuthUserId = (existing.auth_user_id as string | null) ?? null;
+      const existingLastLoginAt = (existing.last_login_at as string | null) ?? null;
+      const shouldRefreshLastLogin = (() => {
+        if (!existingLastLoginAt) return true;
+        const lastLoginAt = new Date(existingLastLoginAt);
+        if (Number.isNaN(lastLoginAt.getTime())) return true;
+        return Date.now() - lastLoginAt.getTime() > 5 * 60 * 1000;
+      })();
 
-      const { data: updated, error: updateError } = await supabaseAdmin
-        .from("users")
-        .update({
-          name: existing.name || fullName,
-          auth_user_id: existing.auth_user_id || authUserId,
-          last_login_at: nowIso,
-          updated_at: nowIso,
-          status: nextStatus,
-          role: nextRole,
-        })
-        .eq("id", existing.id)
-        .select("id, email, name, department_id, status, role, last_login_at")
-        .maybeSingle();
+      const needsUpdate =
+        !existingName ||
+        !existingAuthUserId ||
+        nextStatus !== normalizeStatus(existing.status) ||
+        nextRole !== normalizeRole(existing.role) ||
+        shouldRefreshLastLogin;
 
-      if (updateError || !updated) {
-        console.error("[api/auth/sync] update business user error", updateError);
-        return NextResponse.json(
-          {
-            error: "failed to update business user",
-            detail: updateError?.message ?? "update failed",
-          },
-          { status: 500 },
-        );
+      if (needsUpdate) {
+        const { data: updated, error: updateError } = await supabaseAdmin
+          .from("users")
+          .update({
+            name: existingName || fullName,
+            auth_user_id: existingAuthUserId || authUserId,
+            last_login_at: shouldRefreshLastLogin ? nowIso : existingLastLoginAt,
+            updated_at: nowIso,
+            status: nextStatus,
+            role: nextRole,
+          })
+          .eq("id", existing.id)
+          .select("id, email, name, department_id, status, role, last_login_at")
+          .maybeSingle();
+
+        if (updateError || !updated) {
+          console.error("[api/auth/sync] update business user error", updateError);
+          return NextResponse.json(
+            {
+              error: "failed to update business user",
+              detail: updateError?.message ?? "update failed",
+            },
+            { status: 500 },
+          );
+        }
+
+        businessUser = {
+          id: updated.id as number,
+          email: updated.email as string,
+          name: (updated.name as string) || null,
+          department_id: (updated.department_id as number | null) ?? null,
+          status: normalizeStatus(updated.status as string | null | undefined),
+          role: normalizeRole(updated.role as string | null | undefined),
+          last_login_at: (updated.last_login_at as string | null) ?? null,
+        };
+      } else {
+        businessUser = {
+          id: existing.id as number,
+          email: existing.email as string,
+          name: existingName,
+          department_id: (existing.department_id as number | null) ?? null,
+          status: normalizeStatus(existing.status as string | null | undefined),
+          role: normalizeRole(existing.role as string | null | undefined),
+          last_login_at: existingLastLoginAt,
+        };
       }
-
-      businessUser = {
-        id: updated.id as number,
-        email: updated.email as string,
-        name: (updated.name as string) || null,
-        department_id: (updated.department_id as number | null) ?? null,
-        status: normalizeStatus(updated.status as string | null | undefined),
-        role: normalizeRole(updated.role as string | null | undefined),
-        last_login_at: (updated.last_login_at as string | null) ?? null,
-      };
     } else {
       const { data: inserted, error: insertError } = await supabaseAdmin
         .from("users")
@@ -192,19 +220,26 @@ export async function POST(req: NextRequest) {
       permissions = effectivePermissions;
     }
 
-    return NextResponse.json({
-      user: {
-        id: businessUser.id,
-        email: businessUser.email,
-        name: businessUser.name,
-        departmentId: businessUser.department_id,
-        departmentName,
-        status: businessUser.status,
-        role: businessUser.role,
-        lastLoginAt: businessUser.last_login_at,
-        permissions,
+    return NextResponse.json(
+      {
+        user: {
+          id: businessUser.id,
+          email: businessUser.email,
+          name: businessUser.name,
+          departmentId: businessUser.department_id,
+          departmentName,
+          status: businessUser.status,
+          role: businessUser.role,
+          lastLoginAt: businessUser.last_login_at,
+          permissions,
+        },
       },
-    });
+      {
+        headers: {
+          "Cache-Control": "private, max-age=60, stale-while-revalidate=300",
+        },
+      },
+    );
 
   } catch (error: any) {
     console.error("[api/auth/sync] error", error);

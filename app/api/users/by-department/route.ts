@@ -119,7 +119,14 @@ export async function GET(req: NextRequest) {
       email: row.email,
     }));
 
-    return NextResponse.json({ items });
+    return NextResponse.json(
+      { items },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=60, stale-while-revalidate=300",
+        },
+      },
+    );
   } catch (error: any) {
     console.error("[api/users/by-department] GET error", error);
     return NextResponse.json(

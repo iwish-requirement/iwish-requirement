@@ -207,7 +207,14 @@ export async function GET(req: NextRequest) {
 
     items.sort((a, b) => b.avgScore - a.avgScore);
 
-    return NextResponse.json({ items });
+    return NextResponse.json(
+      { items },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=30, stale-while-revalidate=120",
+        },
+      },
+    );
   } catch (error: any) {
     console.error("[api/scores/statistics] unexpected error", error);
     return NextResponse.json(

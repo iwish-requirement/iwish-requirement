@@ -3,6 +3,11 @@ import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest, ensureActiveUser } from "../../../lib/serverAuth";
 import { DemandStatus, Priority, Demand, DepartmentWorkflowConfig } from "../../../types";
 import { sendWecomAppTextMessage } from "../../../lib/wecomApp";
+import { loadEffectivePermissionsForUser } from "../../../lib/serverPermissions";
+import {
+  resolveAssignedStatusValue,
+  resolveDepartmentDemandRules,
+} from "../../../lib/departmentDemandRules";
 
 export const runtime = "edge";
 
@@ -13,6 +18,9 @@ const DEPT_SLUG_MAP: Record<string, string> = {
   d3: "marketing",
   d4: "sales",
 };
+
+const DEMAND_LIST_SELECT =
+  "id, department_id, creator_id, assignee_id, title, status, priority, fields, created_at";
 
 function mapStatus(status: string | null): DemandStatus {
   const value = (status ?? '').toString();
@@ -105,6 +113,8 @@ function mapRowToDemand(row: any): Demand {
     departmentId,
     creatorId,
     assigneeId,
+    creatorUserId: typeof row.creator_id === "number" ? (row.creator_id as number) : undefined,
+    assigneeUserId: typeof row.assignee_id === "number" ? (row.assignee_id as number) : undefined,
     status: status as DemandStatus,
     priority,
     createdAt,
@@ -182,6 +192,8 @@ function resolveStatusLabelForMessage(
   }
 
   switch (value) {
+    case "unassigned":
+      return "待负责人分配";
     case "pending":
       return DemandStatus.PENDING;
     case "in_progress":
@@ -216,6 +228,7 @@ export async function GET(req: NextRequest) {
     if (activeError) {
       return activeError;
     }
+    const currentUser = authResult.user!;
 
     const url = new URL(req.url);
     const statusParam = url.searchParams.get("status");
@@ -248,6 +261,17 @@ export async function GET(req: NextRequest) {
     const summaryMode = summaryParam === "1" || summaryParam === "true";
     const recentSizeParam = parseInt(url.searchParams.get("recentSize") || "4", 10);
     const recentSize = Number.isNaN(recentSizeParam) || recentSizeParam < 1 ? 4 : Math.min(recentSizeParam, 10);
+    const effectivePermissions = await loadEffectivePermissionsForUser(currentUser);
+    const canViewAll = effectivePermissions.includes("demand.view_all");
+    const canViewDepartment = effectivePermissions.includes("demand.view_department");
+    const canViewPersonal = effectivePermissions.includes("demand.view_personal");
+
+    if (!canViewAll && !canViewDepartment && !canViewPersonal) {
+      return NextResponse.json(
+        { error: "forbidden", detail: "current user cannot view demands" },
+        { status: 403 }
+      );
+    }
 
     const applyFilters = (
       qb: any,
@@ -326,7 +350,16 @@ export async function GET(req: NextRequest) {
         );
       }
 
-      return query;
+      if (canViewAll) {
+        return query;
+      }
+
+      if (canViewDepartment && currentUser.departmentId) {
+        return query.eq("department_id", currentUser.departmentId);
+      }
+
+      return query.or(`creator_id.eq.${currentUser.id},assignee_id.eq.${currentUser.id}`);
+
     };
 
     const buildDemandsWithDisplayFields = async (rows: any[]): Promise<Demand[]> => {
@@ -471,7 +504,7 @@ export async function GET(req: NextRequest) {
       let summaryQuery = applyFilters(
         supabaseAdmin
           .from("demands")
-          .select("*", { count: "exact" })
+          .select(DEMAND_LIST_SELECT, { count: "exact" })
           .order("created_at", { ascending: false }),
         { skipStatusParam: true },
       );
@@ -491,7 +524,7 @@ export async function GET(req: NextRequest) {
 
       const countForStatus = async (statusValue: string) => {
         const { count: statusCount, error: statusError } = await applyFilters(
-          supabaseAdmin.from("demands").select("*", { head: true, count: "exact" }),
+          supabaseAdmin.from("demands").select("id", { head: true, count: "exact" }),
           { statusOverride: statusValue, skipStatusParam: true },
         );
 
@@ -525,7 +558,7 @@ export async function GET(req: NextRequest) {
     let query = applyFilters(
       supabaseAdmin
         .from("demands")
-        .select("*", { count: "exact" })
+        .select(DEMAND_LIST_SELECT, { count: "exact" })
         .order("created_at", { ascending: false }),
     );
 
@@ -583,9 +616,9 @@ export async function POST(req: NextRequest) {
     const assigneeEmail = (body.assigneeEmail as string | undefined)?.trim();
     const customFields = (body.customFields as Record<string, any> | undefined) || {};
 
-    if (!title || departmentIdRaw === undefined || departmentIdRaw === null || !creatorEmail || !assigneeEmail) {
+    if (!title || departmentIdRaw === undefined || departmentIdRaw === null || !creatorEmail) {
       return NextResponse.json(
-        { error: "title, departmentId, creatorEmail and assigneeEmail are required" },
+        { error: "title, departmentId and creatorEmail are required" },
         { status: 400 }
       );
     }
@@ -633,12 +666,12 @@ export async function POST(req: NextRequest) {
       departmentIdNumber
         ? supabaseAdmin
             .from("departments")
-            .select("id, slug")
+            .select("id, slug, config, status_config")
             .eq("id", departmentIdNumber)
             .maybeSingle()
         : supabaseAdmin
             .from("departments")
-            .select("id, slug")
+            .select("id, slug, config, status_config")
             .eq("slug", deptSlug as string)
             .maybeSingle(),
       supabaseAdmin
@@ -646,11 +679,13 @@ export async function POST(req: NextRequest) {
         .select("id, department_id, wecom_user_id")
         .eq("email", creatorEmail)
         .maybeSingle(),
-      supabaseAdmin
-        .from("users")
-        .select("id, department_id, wecom_user_id")
-        .eq("email", assigneeEmail)
-        .maybeSingle(),
+      assigneeEmail
+        ? supabaseAdmin
+            .from("users")
+            .select("id, department_id, wecom_user_id")
+            .eq("email", assigneeEmail)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null } as any),
 
     ]);
 
@@ -670,6 +705,9 @@ export async function POST(req: NextRequest) {
       departmentKeyForFields = dept.slug as string;
     }
 
+    const workflowRules = resolveDepartmentDemandRules((dept as any).config, (dept as any).slug);
+    const requiresLeaderAssignment = workflowRules.requireLeaderAssignment === true;
+
     if (creatorError || !creatorUser) {
       console.error("[api/demands] creator user error", creatorError);
       return NextResponse.json(
@@ -678,7 +716,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (assigneeError || !assigneeUser) {
+    if (!requiresLeaderAssignment && !assigneeEmail) {
+      return NextResponse.json(
+        { error: "assigneeEmail is required for the selected department" },
+        { status: 400 }
+      );
+    }
+
+    if (assigneeEmail && (assigneeError || !assigneeUser)) {
       console.error("[api/demands] assignee user error", assigneeError);
       return NextResponse.json(
         { error: "assignee user not found", detail: assigneeError?.message },
@@ -693,7 +738,7 @@ export async function POST(req: NextRequest) {
         .padStart(5, "0")}`;
 
     const creatorCode = creatorEmail.split("@")[0]?.toUpperCase();
-    const assigneeCode = assigneeEmail.split("@")[0]?.toUpperCase();
+    const assigneeCode = assigneeEmail?.split("@")[0]?.toUpperCase();
 
     const fields = {
       code,
@@ -703,18 +748,32 @@ export async function POST(req: NextRequest) {
       departmentKey: departmentKeyForFields || undefined,
       creatorCode,
       assigneeCode,
-      assigneeEmail,
+      assigneeEmail: assigneeEmail || undefined,
       ...customFields,
     };
+
+    if (!assigneeCode) {
+      delete (fields as any).assigneeCode;
+    }
+    if (!assigneeEmail) {
+      delete (fields as any).assigneeEmail;
+    }
+
+    const initialStatus = requiresLeaderAssignment
+      ? workflowRules.unassignedStatus || "unassigned"
+      : resolveAssignedStatusValue(
+          workflowRules,
+          (((dept as any).status_config as DepartmentWorkflowConfig["statuses"]) || []),
+        );
 
     const { data, error } = await supabaseAdmin
       .from("demands")
       .insert({
         department_id: departmentIdNumber,
         creator_id: creatorUser.id,
-        assignee_id: assigneeUser.id,
+        assignee_id: assigneeUser?.id || null,
         title,
-        status: "pending",
+        status: initialStatus,
         priority: priority as string, // 支持自定义优先级
         field_template_id: null,
         fields,
@@ -744,7 +803,7 @@ export async function POST(req: NextRequest) {
           demand,
           departmentId: departmentIdNumber,
           creatorUserId: creatorUser.id as number,
-          assigneeUserId: assigneeUser.id as number,
+          assigneeUserId: assigneeUser ? (assigneeUser.id as number) : undefined,
         })
         .catch((e) => {
           console.error("[api/demands] enqueue webhook error", e);
@@ -752,7 +811,7 @@ export async function POST(req: NextRequest) {
     });
 
     // 直接在服务端同步调用企业微信应用消息发送
-    const assigneeWecomId = ((assigneeUser as any).wecom_user_id || "").toString().trim();
+    const assigneeWecomId = ((assigneeUser as any)?.wecom_user_id || "").toString().trim();
     console.log("[api/demands] wecom message assigneeWecomId", assigneeWecomId);
     if (assigneeWecomId) {
       const baseUrlEnv =
@@ -796,7 +855,7 @@ export async function POST(req: NextRequest) {
 
 
     const wecomDebug = {
-      assigneeWecomId: ((assigneeUser as any).wecom_user_id || "").toString().trim(),
+      assigneeWecomId: ((assigneeUser as any)?.wecom_user_id || "").toString().trim(),
       hasProxyUrl: !!process.env.WECOM_MESSAGE_PROXY_URL,
       hasProxyToken: !!process.env.WECOM_MESSAGE_PROXY_TOKEN,
     };

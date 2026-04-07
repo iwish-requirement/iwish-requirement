@@ -220,11 +220,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const deptMap = await loadDepartmentMap();
-
     const allRows = (data || []) as RawUserRow[];
-
-    const dbRoleNamesMap = await loadDbRoleNamesForUsers(allRows);
+    const [deptMap, dbRoleNamesMap] = await Promise.all([
+      loadDepartmentMap(),
+      loadDbRoleNamesForUsers(allRows),
+    ]);
 
     let shaped = allRows.map((row) => shapeUser(row, deptMap, dbRoleNamesMap));
 
@@ -233,7 +233,14 @@ export async function GET(req: NextRequest) {
       shaped = shaped.filter((u) => u.status === normalized);
     }
 
-    return NextResponse.json({ items: shaped });
+    return NextResponse.json(
+      { items: shaped },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=30, stale-while-revalidate=120",
+        },
+      },
+    );
 
   } catch (error: any) {
     console.error("[api/admin/users] GET error", error);

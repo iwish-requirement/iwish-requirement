@@ -5,6 +5,10 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Bell, Search, Menu, ChevronDown, User, LogOut, Settings, Shield } from 'lucide-react';
 import { getSupabaseClient } from '../lib/supabase';
 import { hasPermission, type PermissionKey } from '../lib/permissions';
+import {
+  clearClientBusinessUserCache,
+  loadClientBusinessUser,
+} from '../lib/clientBusinessUser';
 
 interface HeaderUserInfo {
   id?: number;
@@ -22,6 +26,7 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ onMenuClick, currentUser }) => {
+  const mentionsCacheKey = 'mentions:unread-cache';
   const router = useRouter();
   const pathname = usePathname();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -32,6 +37,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick, currentUser }) => {
   const handleLogout = async () => {
     const supabase = getSupabaseClient();
     await supabase.auth.signOut();
+    clearClientBusinessUserCache();
     router.push('/login');
   };
 
@@ -54,55 +60,25 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick, currentUser }) => {
   }, []);
 
   useEffect(() => {
+    if (currentUser?.id && currentUser?.departmentName && Array.isArray(currentUser.permissions)) {
+      setBusinessUser(currentUser);
+      return;
+    }
+
     const syncBusinessUser = async () => {
       try {
-        const supabase = getSupabaseClient();
-        const { data } = await supabase.auth.getUser();
-        const authUser = data?.user;
-        if (!authUser?.email || !authUser.id) {
+        const user = await loadClientBusinessUser();
+        if (!user) {
           return;
         }
-
-        const meta = (authUser.user_metadata || {}) as Record<string, any>;
-        const metaName =
-          (typeof meta.full_name === 'string' && meta.full_name) ||
-          (typeof meta.name === 'string' && meta.name) ||
-          null;
-
-        const res = await fetch('/api/auth/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            authUserId: authUser.id,
-            email: authUser.email,
-            fullName: metaName,
-          }),
-        });
-
-        if (!res.ok) {
-          console.error('auth sync error', await res.text());
-          return;
-        }
-
-        const json = await res.json();
-        const u = (json.user || {}) as {
-          id?: number;
-          email?: string | null;
-          name?: string | null;
-          role?: string | null;
-          status?: string | null;
-          departmentName?: string | null;
-          permissions?: PermissionKey[] | null;
-        };
-
         setBusinessUser({
-          id: u.id,
-          email: u.email ?? authUser.email,
-          name: u.name ?? metaName ?? authUser.email,
-          role: u.role ?? 'user',
-          status: u.status ?? 'pending',
-          departmentName: u.departmentName ?? null,
-          permissions: Array.isArray(u.permissions) ? (u.permissions as PermissionKey[]) : undefined,
+          id: user.id,
+          email: user.email ?? null,
+          name: user.name ?? user.email ?? null,
+          role: user.role ?? 'user',
+          status: user.status ?? 'pending',
+          departmentName: user.departmentName ?? null,
+          permissions: Array.isArray(user.permissions) ? (user.permissions as PermissionKey[]) : undefined,
         });
       } catch (e) {
         console.error('auth sync error', e);
@@ -110,11 +86,24 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick, currentUser }) => {
     };
 
     syncBusinessUser();
-  }, [pathname]);
+  }, [currentUser]);
 
   useEffect(() => {
     const loadUnreadMentions = async () => {
       try {
+        const storage = typeof globalThis !== 'undefined' ? globalThis.sessionStorage : null;
+
+        if (storage) {
+          const cachedRaw = storage.getItem(mentionsCacheKey);
+          if (cachedRaw) {
+            const cached = JSON.parse(cachedRaw) as { value: boolean; ts: number };
+            if (cached && typeof cached.ts === 'number' && Date.now() - cached.ts < 60 * 1000) {
+              setHasUnreadMentions(!!cached.value);
+              return;
+            }
+          }
+        }
+
         const supabase = getSupabaseClient();
         const { data } = await supabase.auth.getUser();
         const email = data?.user?.email || '';
@@ -128,17 +117,35 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick, currentUser }) => {
         const items = (json.items || []) as { createdAt?: string }[];
         if (!items.length) {
           setHasUnreadMentions(false);
+          if (storage) {
+            storage.setItem(
+              mentionsCacheKey,
+              JSON.stringify({ value: false, ts: Date.now() }),
+            );
+          }
           return;
         }
 
         if (typeof window === 'undefined') {
           setHasUnreadMentions(true);
+          if (storage) {
+            storage.setItem(
+              mentionsCacheKey,
+              JSON.stringify({ value: true, ts: Date.now() }),
+            );
+          }
           return;
         }
 
         const lastSeenRaw = window.localStorage.getItem('mentions:lastSeenAt');
         if (!lastSeenRaw) {
           setHasUnreadMentions(true);
+          if (storage) {
+            storage.setItem(
+              mentionsCacheKey,
+              JSON.stringify({ value: true, ts: Date.now() }),
+            );
+          }
           return;
         }
         const lastSeen = new Date(lastSeenRaw);
@@ -155,6 +162,12 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick, currentUser }) => {
           return d > lastSeen;
         });
         setHasUnreadMentions(hasNew);
+        if (storage) {
+          storage.setItem(
+            mentionsCacheKey,
+            JSON.stringify({ value: hasNew, ts: Date.now() }),
+          );
+        }
       } catch (e) {
         console.error('load unread mentions error', e);
       }

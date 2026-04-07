@@ -45,7 +45,16 @@ export async function GET(req: NextRequest) {
       slug: (row.slug as string | null) || null,
     }));
 
-    return NextResponse.json({ items });
+    return NextResponse.json(
+      { items },
+      {
+        headers: {
+          "Cache-Control": includeStats
+            ? "private, max-age=30, stale-while-revalidate=120"
+            : "public, max-age=300, stale-while-revalidate=600",
+        },
+      },
+    );
   } catch (error: any) {
     console.error("[api/departments] error", error);
     return NextResponse.json(

@@ -26,6 +26,7 @@ export default function NewDemandPage() {
   const [error, setError] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const requiresLeaderAssignment = workflowConfig?.rules?.requireLeaderAssignment === true;
 
   useEffect(() => {
     const loadDepartments = async () => {
@@ -144,11 +145,18 @@ export default function NewDemandPage() {
         const sorted: DepartmentWorkflowConfig = {
           priorities: [...cfg.priorities].sort((a, b) => a.order - b.order),
           statuses: [...cfg.statuses].sort((a, b) => a.order - b.order),
+          rules: cfg.rules,
         };
         setWorkflowConfig(sorted);
-        if (!priority && sorted.priorities.length > 0) {
-          setPriority(sorted.priorities[0].value);
-        }
+        setPriority((prev) => {
+          if (sorted.priorities.length === 0) {
+            return prev;
+          }
+          if (prev && sorted.priorities.some((item) => item.value === prev)) {
+            return prev;
+          }
+          return sorted.priorities[0].value;
+        });
       } catch (e) {
         console.error('load workflow config for new demand error', e);
         setWorkflowConfig(null);
@@ -156,7 +164,13 @@ export default function NewDemandPage() {
     };
 
     loadWorkflowConfig();
-  }, [selectedDeptId, priority]);
+  }, [selectedDeptId]);
+
+  useEffect(() => {
+    if (requiresLeaderAssignment && assigneeEmail) {
+      setAssigneeEmail('');
+    }
+  }, [requiresLeaderAssignment, assigneeEmail]);
 
   const handleDynamicChange = (id: string, value: any) => {
     setFormData(prev => ({ ...prev, [id]: value }));
@@ -167,7 +181,7 @@ export default function NewDemandPage() {
       setError('请填写标题、部门和需求描述');
       return;
     }
-    if (!assigneeEmail.trim()) {
+    if (!requiresLeaderAssignment && !assigneeEmail.trim()) {
       setError('请选择执行人，该字段为必填');
       return;
     }
@@ -189,7 +203,7 @@ export default function NewDemandPage() {
           priority,
           dueDate,
           creatorEmail,
-          assigneeEmail: assigneeEmail.trim(),
+          assigneeEmail: requiresLeaderAssignment ? undefined : assigneeEmail.trim(),
           customFields: formData,
         }),
       });
@@ -323,11 +337,16 @@ export default function NewDemandPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div>
               <label className="block text-base font-bold text-slate-700 mb-2">执行人 <span className="text-red-500">*</span></label>
+              {requiresLeaderAssignment && (
+                <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  当前部门由负责人统一分配，提交需求时无需指定执行人。
+                </div>
+              )}
               <select
                 value={assigneeEmail}
                 onChange={(e) => setAssigneeEmail(e.target.value)}
                 className="w-full px-4 py-3 text-base border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none shadow-sm bg-white transition-all disabled:bg-slate-50 disabled:text-slate-400"
-                disabled={!selectedDeptId || deptUsersLoading || deptUsers.length === 0}
+                disabled={requiresLeaderAssignment || !selectedDeptId || deptUsersLoading || deptUsers.length === 0}
               >
                 {!selectedDeptId && <option value="">请先选择所属部门</option>}
                 {selectedDeptId && deptUsersLoading && <option value="">正在加载该部门成员...</option>}

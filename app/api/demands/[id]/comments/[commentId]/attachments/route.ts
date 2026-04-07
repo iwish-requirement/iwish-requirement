@@ -51,10 +51,12 @@ export async function POST(
     }
 
     const formData = await req.formData();
-    const file = formData.get('file');
+    const file = formData.get('file') as File | null;
     const uploaderEmailRaw = formData.get('uploaderEmail');
 
-    if (!(file instanceof File)) {
+    // Edge Runtime 中不同执行上下文的 File 可能导致 instanceof 失效
+    // 这里只检查字段是否存在，类型由存储 SDK 再做校验
+    if (!file) {
       return NextResponse.json(
         { error: 'file is required' },
         { status: 400 }
@@ -62,6 +64,7 @@ export async function POST(
     }
 
     const uploaderEmail = typeof uploaderEmailRaw === 'string' ? uploaderEmailRaw.trim() : '';
+
 
     if (!uploaderEmail) {
       return NextResponse.json(

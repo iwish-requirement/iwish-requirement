@@ -107,47 +107,28 @@ export default function UserManagementSettings() {
       setLoading(true);
       setError(null);
 
-      const [activeRes, pendingRes, disabledRes] = await Promise.all([
-        authorizedFetch("/api/admin/users?status=active"),
-        authorizedFetch("/api/admin/users?status=pending"),
-        authorizedFetch("/api/admin/users?status=disabled"),
-      ]);
+      const res = await authorizedFetch("/api/admin/users");
 
-      // active
-      if (!activeRes.ok) {
-        const text = await activeRes.text();
-        console.error("load active users error", text);
-        if (activeRes.status === 401) {
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("load admin users error", text);
+        if (res.status === 401) {
           setError("登录已失效，请重新登录后再试");
-        } else if (activeRes.status === 403) {
+        } else if (res.status === 403) {
           setError("您没有权限管理用户，如需操作请联系系统超级管理员。");
         } else {
           setError("加载用户列表失败，请稍后重试");
         }
         setActiveUsers([]);
-      } else {
-        const json = (await activeRes.json()) as { items?: AdminUser[] };
-        setActiveUsers(Array.isArray(json.items) ? json.items : []);
-      }
-
-      // pending
-      if (!pendingRes.ok) {
-        const text = await pendingRes.text();
-        console.error("load pending users error", text);
         setPendingUsers([]);
-      } else {
-        const json = (await pendingRes.json()) as { items?: AdminUser[] };
-        setPendingUsers(Array.isArray(json.items) ? json.items : []);
-      }
-
-      // disabled
-      if (!disabledRes.ok) {
-        const text = await disabledRes.text();
-        console.error("load disabled users error", text);
         setDisabledUsers([]);
+        return;
       } else {
-        const json = (await disabledRes.json()) as { items?: AdminUser[] };
-        setDisabledUsers(Array.isArray(json.items) ? json.items : []);
+        const json = (await res.json()) as { items?: AdminUser[] };
+        const items = Array.isArray(json.items) ? json.items : [];
+        setActiveUsers(items.filter((user) => (user.status || "").toLowerCase() === "active"));
+        setPendingUsers(items.filter((user) => (user.status || "").toLowerCase() === "pending"));
+        setDisabledUsers(items.filter((user) => (user.status || "").toLowerCase() === "disabled"));
       }
     } catch (e) {
       console.error("load admin users error", e);
@@ -494,10 +475,10 @@ export default function UserManagementSettings() {
 
   return (
     <div className="animate-fadeIn">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6 min-w-0">
         <div className="flex items-center gap-3">
           <Users className="w-5 h-5 text-slate-500 flex-shrink-0" />
-          <div className="flex-1 overflow-x-auto">
+          <div className="flex-1 min-w-0 overflow-x-auto">
             <div className="flex gap-4 min-w-max">
               <button
                 type="button"
