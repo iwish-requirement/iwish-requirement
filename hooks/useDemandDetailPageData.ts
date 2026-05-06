@@ -170,21 +170,22 @@ export function useDemandDetailBootstrap(id: string) {
   }, []);
 
   useEffect(() => {
-    const supabase = getSupabaseClient();
-    supabase
-      .from("users")
-      .select("id, name, email")
-      .limit(50)
-      .then(({ data, error: loadError }) => {
-        if (loadError) {
-          console.error("load mention users error", loadError);
+    const loadMentionUsers = async () => {
+      try {
+        const res = await authorizedFetch("/api/users/mention-options");
+        if (!res.ok) {
+          console.error("load mention users error", await res.text());
           return;
         }
 
-        if (data) {
-          setMentionUsers(data as MentionUser[]);
-        }
-      });
+        const json = await res.json();
+        setMentionUsers((json.items || []) as MentionUser[]);
+      } catch (err) {
+        console.error("load mention users error", err);
+      }
+    };
+
+    loadMentionUsers();
   }, []);
 
   return {

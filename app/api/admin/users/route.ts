@@ -6,6 +6,7 @@ export const runtime = "edge";
 
 type RawUserRow = {
   id: number;
+  auth_user_id?: string | null;
   email: string;
   name: string | null;
   department_id: number | null;
@@ -427,6 +428,7 @@ export async function DELETE(req: NextRequest) {
 
     const body = await req.json();
     const idRaw = body.id;
+    const mode = (body.mode ?? "").toString();
     const id = Number(idRaw);
 
     if (!id || Number.isNaN(id)) {
@@ -434,6 +436,83 @@ export async function DELETE(req: NextRequest) {
         { error: "valid id is required" },
         { status: 400 },
       );
+    }
+
+    if (mode === "reject_pending") {
+      const { data: existing, error: existingError } = await supabaseAdmin
+        .from("users")
+        .select("id, auth_user_id, email, name, department_id, status, role, is_active, last_login_at")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (existingError || !existing) {
+        console.error("[api/admin/users] load pending user for reject error", existingError);
+        return NextResponse.json(
+          {
+            error: "failed to load pending user",
+            detail: existingError?.message ?? "user not found",
+          },
+          { status: existingError ? 500 : 404 },
+        );
+      }
+
+      const existingUser = existing as RawUserRow;
+      if (normalizeStatus(existingUser.status) !== "pending") {
+        return NextResponse.json(
+          { error: "only pending users can be rejected" },
+          { status: 400 },
+        );
+      }
+
+      const authUserId = (existingUser.auth_user_id || "").trim();
+      if (authUserId) {
+        const { error: deleteAuthError } = await supabaseAdmin.auth.admin.deleteUser(authUserId);
+        if (deleteAuthError) {
+          console.error("[api/admin/users] delete auth user for reject error", deleteAuthError);
+          return NextResponse.json(
+            {
+              error: "failed to delete auth user",
+              detail: deleteAuthError.message,
+            },
+            { status: 500 },
+          );
+        }
+      }
+
+      const { error: deleteRolesError } = await supabaseAdmin
+        .from("user_roles")
+        .delete()
+        .eq("user_id", id);
+
+      if (deleteRolesError) {
+        console.error("[api/admin/users] delete pending user roles error", deleteRolesError);
+        return NextResponse.json(
+          {
+            error: "failed to delete user roles",
+            detail: deleteRolesError.message,
+          },
+          { status: 500 },
+        );
+      }
+
+      const { error: deleteUserError } = await supabaseAdmin
+        .from("users")
+        .delete()
+        .eq("id", id)
+        .eq("status", "pending");
+
+      if (deleteUserError) {
+        console.error("[api/admin/users] delete pending user error", deleteUserError);
+        return NextResponse.json(
+          {
+            error: "failed to reject pending user",
+            detail: deleteUserError.message,
+          },
+          { status: 500 },
+        );
+      }
+
+      return NextResponse.json({ deleted: true, id });
     }
 
     const nowIso = new Date().toISOString();
