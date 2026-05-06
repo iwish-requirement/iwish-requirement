@@ -663,9 +663,12 @@ export default function DemandsPage() {
 
   const renderRelationshipBadges = (demand: Demand) => {
     let label = "";
-    if (currentUserId && demand.assigneeUserId === currentUserId) {
-      label = "待我处理";
-    } else if (currentUserId && demand.creatorUserId === currentUserId) {
+    const assignedToMe = currentUserId && demand.assigneeUserId === currentUserId;
+    const createdByMe = currentUserId && demand.creatorUserId === currentUserId;
+
+    if (assignedToMe) {
+      label = "指派给我";
+    } else if (createdByMe) {
       label = "我提交";
     }
 
