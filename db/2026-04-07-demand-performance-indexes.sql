@@ -2,7 +2,8 @@
 -- Recommended for Supabase/Postgres.
 -- Run during a low-traffic window if possible.
 
-create extension if not exists pg_trgm;
+create schema if not exists extensions;
+create extension if not exists pg_trgm with schema extensions;
 
 -- Departments / users high-frequency lookup
 create index if not exists idx_departments_slug

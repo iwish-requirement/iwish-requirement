@@ -304,9 +304,9 @@ export default function UserManagementSettings() {
       setSavingUserId(user.id);
       setError(null);
       const res = await authorizedFetch("/api/admin/users", {
-        method: "PATCH",
+        method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: user.id, status: "disabled" }),
+        body: JSON.stringify({ id: user.id, mode: "reject_pending" }),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -314,11 +314,8 @@ export default function UserManagementSettings() {
         setError("拒绝用户失败，请稍后重试");
         return;
       }
-      const json = (await res.json()) as { user?: AdminUser };
+      await res.json().catch(() => null);
       setPendingUsers((prev) => prev.filter((u) => u.id !== user.id));
-      if (json.user) {
-        setDisabledUsers((prev) => [...prev, json.user!]);
-      }
     } catch (e) {
       console.error("reject pending user error", e);
       setError("拒绝用户失败，请检查网络后重试");
