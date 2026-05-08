@@ -313,7 +313,9 @@ export async function GET(req: NextRequest) {
     const effectivePermissions = await loadEffectivePermissionsForUser(currentUser);
     const canViewAll = effectivePermissions.includes("demand.view_all");
     const canViewDepartment = effectivePermissions.includes("demand.view_department");
-    const canViewPersonal = effectivePermissions.includes("demand.view_personal");
+    const canViewPersonal =
+      effectivePermissions.includes("demand.view_personal") ||
+      effectivePermissions.includes("demand.create");
 
     if (!canViewAll && !canViewDepartment && !canViewPersonal) {
       return NextResponse.json(
@@ -777,16 +779,16 @@ export async function POST(req: NextRequest) {
     const departmentIdRaw = body.departmentId as string | number | undefined;
     const priority = (body.priority as Priority | undefined) || Priority.MEDIUM;
     const dueDate = (body.dueDate as string | undefined) || "";
-    const creatorEmail = (body.creatorEmail as string | undefined)?.trim();
+    const creatorEmail = authResult.user!.email;
     const assigneeEmail = (body.assigneeEmail as string | undefined)?.trim();
     const customFields = (body.customFields as Record<string, any> | undefined) || {};
     const customerId = normalizeOptionalId(body.customerId);
     const projectId = normalizeOptionalId(body.projectId);
     const demandTypeId = normalizeOptionalId(body.demandTypeId);
 
-    if (!title || departmentIdRaw === undefined || departmentIdRaw === null || !creatorEmail) {
+    if (!title || departmentIdRaw === undefined || departmentIdRaw === null) {
       return NextResponse.json(
-        { error: "title, departmentId and creatorEmail are required" },
+        { error: "title and departmentId are required" },
         { status: 400 }
       );
     }
@@ -843,11 +845,7 @@ export async function POST(req: NextRequest) {
             .select("id, slug, config, status_config")
             .eq("slug", deptSlug as string)
             .maybeSingle(),
-      supabaseAdmin
-        .from("users")
-        .select("id, department_id, wecom_user_id")
-        .eq("email", creatorEmail)
-        .maybeSingle(),
+      Promise.resolve({ data: authResult.user, error: null } as any),
       assigneeEmail
         ? supabaseAdmin
             .from("users")

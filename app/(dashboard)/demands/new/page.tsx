@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Upload, Sparkles, ClipboardList, Clock3 } from 'lucide-react';
-import { Department, FieldDefinition, Priority, type Customer, type DemandType, type DepartmentWorkflowConfig, type Project } from '../../../../types';
+import { Department, FieldDefinition, Priority, type DemandType, type DepartmentWorkflowConfig } from '../../../../types';
 import { getSupabaseClient } from '../../../../lib/supabase';
 import { authorizedFetch } from '../../../../lib/authFetch';
 
@@ -65,10 +65,6 @@ export default function NewDemandPage() {
   const [selectedDeptId, setSelectedDeptId] = useState('');
   const [demandTypes, setDemandTypes] = useState<DemandType[]>([]);
   const [selectedDemandTypeId, setSelectedDemandTypeId] = useState('');
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedCustomerId, setSelectedCustomerId] = useState('');
-  const [selectedProjectId, setSelectedProjectId] = useState('');
   const [dynamicFields, setDynamicFields] = useState<FieldDefinition[]>([]);
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [title, setTitle] = useState('');
@@ -140,50 +136,6 @@ export default function NewDemandPage() {
 
     loadUser();
   }, []);
-
-  useEffect(() => {
-    const loadCustomers = async () => {
-      try {
-        const res = await authorizedFetch('/api/customers');
-        if (!res.ok) {
-          console.error('load customers error', await res.text());
-          return;
-        }
-        const json = await res.json();
-        setCustomers(Array.isArray(json.items) ? json.items : []);
-      } catch (e) {
-        console.error('load customers error', e);
-      }
-    };
-
-    loadCustomers();
-  }, []);
-
-  useEffect(() => {
-    const loadProjects = async () => {
-      if (!selectedCustomerId) {
-        setProjects([]);
-        setSelectedProjectId('');
-        return;
-      }
-
-      try {
-        const res = await authorizedFetch(`/api/projects?customerId=${encodeURIComponent(selectedCustomerId)}`);
-        if (!res.ok) {
-          console.error('load projects error', await res.text());
-          setProjects([]);
-          return;
-        }
-        const json = await res.json();
-        setProjects(Array.isArray(json.items) ? json.items : []);
-      } catch (e) {
-        console.error('load projects error', e);
-        setProjects([]);
-      }
-    };
-
-    loadProjects();
-  }, [selectedCustomerId]);
 
   const loadDrafts = async () => {
     try {
@@ -462,8 +414,6 @@ export default function NewDemandPage() {
     setDescription(payload.description || '');
     setDueDate(payload.dueDate || '');
     setPriority(payload.priority || priority);
-    setSelectedCustomerId(payload.customerId ? String(payload.customerId) : '');
-    setSelectedProjectId(payload.projectId ? String(payload.projectId) : '');
     setSelectedDemandTypeId(payload.demandTypeId ? String(payload.demandTypeId) : selectedDemandTypeId);
     setFormData(payload.customFields || {});
     setTemplateMessage(`已套用模板：${template.name}`);
@@ -488,8 +438,6 @@ export default function NewDemandPage() {
             description,
             priority,
             dueDate,
-            customerId: selectedCustomerId ? Number(selectedCustomerId) : undefined,
-            projectId: selectedProjectId ? Number(selectedProjectId) : undefined,
             demandTypeId: selectedDemandTypeId ? Number(selectedDemandTypeId) : undefined,
             customFields: formData,
           },
@@ -513,15 +461,6 @@ export default function NewDemandPage() {
   const recentByType = (type: string) => recentInputs.filter((item) => item.input_type === type).slice(0, 5);
 
   const applyRecentInput = (item: RecentInput) => {
-    if (item.input_type === 'customer') {
-      setSelectedCustomerId(item.value);
-      setSelectedProjectId('');
-      return;
-    }
-    if (item.input_type === 'project') {
-      setSelectedProjectId(item.value);
-      return;
-    }
     if (item.input_type === 'demand_type') {
       setSelectedDemandTypeId(item.value);
       return;
@@ -539,12 +478,6 @@ export default function NewDemandPage() {
   };
 
   const formatRecentInput = (item: RecentInput) => {
-    if (item.input_type === 'customer') {
-      return customers.find((customer) => String(customer.id) === item.value)?.name || `客户 #${item.value}`;
-    }
-    if (item.input_type === 'project') {
-      return projects.find((project) => String(project.id) === item.value)?.name || `项目 #${item.value}`;
-    }
     if (item.input_type === 'demand_type') {
       return demandTypes.find((type) => String(type.id) === item.value)?.name || `类型 #${item.value}`;
     }
@@ -702,8 +635,6 @@ export default function NewDemandPage() {
           departmentId: Number(selectedDeptId),
           priority,
           dueDate,
-          customerId: selectedCustomerId ? Number(selectedCustomerId) : undefined,
-          projectId: selectedProjectId ? Number(selectedProjectId) : undefined,
           demandTypeId: selectedDemandTypeId ? Number(selectedDemandTypeId) : undefined,
           creatorEmail,
           assigneeEmail: requiresLeaderAssignment ? undefined : assigneeEmail.trim(),
@@ -833,8 +764,6 @@ export default function NewDemandPage() {
               </div>
               <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                 {[
-                  { label: '客户', items: recentByType('customer').filter((item) => customers.some((customer) => String(customer.id) === item.value)) },
-                  { label: '项目', items: recentByType('project').filter((item) => projects.some((project) => String(project.id) === item.value)) },
                   { label: '需求类型', items: recentByType('demand_type').filter((item) => demandTypes.some((type) => String(type.id) === item.value)) },
                   { label: '截止日期', items: recentByType('due_date') },
                   { label: '链接/站点', items: recentByType('link').filter((item) => !!item.value) },
@@ -903,40 +832,6 @@ export default function NewDemandPage() {
                 ))}
               </select>
               <p className="text-xs text-slate-400 mt-1">用于创意/技术等部门按 UI、美工、视频、开发类型统计。</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div>
-              <label className="block text-base font-bold text-slate-700 mb-2">客户</label>
-              <select
-                value={selectedCustomerId}
-                onChange={(e) => setSelectedCustomerId(e.target.value)}
-                className="w-full px-4 py-3 text-base border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none shadow-sm bg-white transition-all"
-              >
-                <option value="">暂不关联客户</option>
-                {customers.map((customer) => (
-                  <option key={customer.id} value={String(customer.id)}>
-                    {customer.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-base font-bold text-slate-700 mb-2">项目/站点</label>
-              <select
-                value={selectedProjectId}
-                onChange={(e) => setSelectedProjectId(e.target.value)}
-                disabled={!selectedCustomerId || projects.length === 0}
-                className="w-full px-4 py-3 text-base border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none shadow-sm bg-white transition-all disabled:bg-slate-50 disabled:text-slate-400"
-              >
-                <option value="">{selectedCustomerId ? '暂不关联项目' : '请先选择客户'}</option>
-                {projects.map((project) => (
-                  <option key={project.id} value={String(project.id)}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
             </div>
           </div>
 
