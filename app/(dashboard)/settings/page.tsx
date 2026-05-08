@@ -31,7 +31,6 @@ type AdminTab =
   | "departments"
   | "users"
   | "roles"
-  | "customerProjects"
   | "demandTypes"
   | "fields"
   | "workflow"
@@ -86,8 +85,6 @@ export default function AdminPage() {
         can("settings.fields.manage") ||
         can("department.fields_manage")
       );
-    if (tab === "customerProjects")
-      return hasShell || can("settings.departments.view") || can("settings.departments.manage") || can("demand.create");
     if (tab === "demandTypes")
       return hasShell || can("settings.fields.view") || can("settings.fields.manage") || can("department.fields_manage");
     if (tab === "workflow")
@@ -120,7 +117,6 @@ export default function AdminPage() {
     if (tab === "global") return can("settings.global.manage");
     if (tab === "departments") return can("settings.departments.manage");
     if (tab === "fields") return can("settings.fields.manage") || can("department.fields_manage");
-    if (tab === "customerProjects") return can("settings.departments.manage") || can("demand.create");
     if (tab === "demandTypes") return can("settings.fields.manage") || can("department.fields_manage");
     if (tab === "workflow")
       return (
@@ -148,8 +144,6 @@ export default function AdminPage() {
         can("settings.fields.manage") ||
         can("department.fields_manage")
       );
-    if (tab === "customerProjects")
-      return can("settings.departments.view") || can("settings.departments.manage") || can("demand.create");
     if (tab === "demandTypes")
       return can("settings.fields.view") || can("settings.fields.manage") || can("department.fields_manage");
     if (tab === "workflow")
@@ -199,7 +193,6 @@ export default function AdminPage() {
     { id: "departments", label: "部门管理", icon: Building2 },
     { id: "users", label: "用户管理", icon: Users },
     { id: "roles", label: "权限管理", icon: Shield },
-    { id: "customerProjects", label: "客户项目", icon: Building2 },
     { id: "demandTypes", label: "需求类型", icon: Database },
     { id: "fields", label: "字段模板", icon: Database },
     { id: "workflow", label: "工作流配置", icon: GitBranch },
@@ -309,12 +302,6 @@ export default function AdminPage() {
                   <FieldTemplates canManage={canManageTab("fields")} />
                 ) : (
                   renderNoPermission("字段模板")
-                ))}
-              {activeTab === "customerProjects" &&
-                (canReadTab("customerProjects") ? (
-                  <CustomerProjectSettings canManage={canManageTab("customerProjects")} />
-                ) : (
-                  renderNoPermission("客户项目")
                 ))}
               {activeTab === "demandTypes" &&
                 (canReadTab("demandTypes") ? (
@@ -1761,250 +1748,6 @@ const WorkflowConfigSettingsLegacy2 = ({ canManage }: { canManage: boolean }) =>
           </div>
         </div>
       )}
-    </div>
-  );
-};
-
-// -------------------- 客户/项目管理 --------------------
-
-const CustomerProjectSettings = ({ canManage }: { canManage: boolean }) => {
-  const [customers, setCustomers] = useState<Array<{ id: number; name: string; status?: string | null; level?: string | null }>>([]);
-  const [projects, setProjects] = useState<Array<{ id: number; customerId: number; name: string; type?: string | null; status?: string | null }>>([]);
-  const [selectedCustomerId, setSelectedCustomerId] = useState("");
-  const [customerName, setCustomerName] = useState("");
-  const [projectName, setProjectName] = useState("");
-  const [projectType, setProjectType] = useState("");
-  const [editingCustomer, setEditingCustomer] = useState<{ id: number; name: string; status: string } | null>(null);
-  const [editingProject, setEditingProject] = useState<{ id: number; name: string; type: string; status: string } | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-
-  const loadCustomers = async () => {
-    const res = await authorizedFetch("/api/customers");
-    if (!res.ok) return;
-    const json = await res.json();
-    const items = Array.isArray(json.items) ? json.items : [];
-    setCustomers(items);
-    if (!selectedCustomerId && items[0]) setSelectedCustomerId(String(items[0].id));
-  };
-
-  const loadProjects = async (customerId: string) => {
-    if (!customerId) {
-      setProjects([]);
-      return;
-    }
-    const res = await authorizedFetch(`/api/projects?customerId=${encodeURIComponent(customerId)}`);
-    if (!res.ok) {
-      setProjects([]);
-      return;
-    }
-    const json = await res.json();
-    setProjects(Array.isArray(json.items) ? json.items : []);
-  };
-
-  useEffect(() => {
-    loadCustomers();
-  }, []);
-
-  useEffect(() => {
-    loadProjects(selectedCustomerId);
-  }, [selectedCustomerId]);
-
-  const createCustomer = async () => {
-    if (!canManage || !customerName.trim()) return;
-    const res = await authorizedFetch("/api/customers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: customerName.trim() }),
-    });
-    if (!res.ok) {
-      setMessage("客户创建失败");
-      return;
-    }
-    setCustomerName("");
-    setMessage("客户已创建");
-    await loadCustomers();
-  };
-
-  const createProject = async () => {
-    if (!canManage || !selectedCustomerId || !projectName.trim()) return;
-    const res = await authorizedFetch("/api/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customerId: Number(selectedCustomerId), name: projectName.trim(), type: projectType.trim() || undefined }),
-    });
-    if (!res.ok) {
-      setMessage("项目创建失败");
-      return;
-    }
-    setProjectName("");
-    setProjectType("");
-    setMessage("项目已创建");
-    await loadProjects(selectedCustomerId);
-  };
-
-  const updateCustomer = async () => {
-    if (!canManage || !editingCustomer || !editingCustomer.name.trim()) return;
-    const res = await authorizedFetch("/api/customers", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: editingCustomer.id,
-        name: editingCustomer.name.trim(),
-        status: editingCustomer.status,
-      }),
-    });
-    if (!res.ok) {
-      setMessage("客户更新失败");
-      return;
-    }
-    setMessage("客户已更新");
-    setEditingCustomer(null);
-    await loadCustomers();
-  };
-
-  const updateProject = async () => {
-    if (!canManage || !editingProject || !editingProject.name.trim()) return;
-    const res = await authorizedFetch("/api/projects", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: editingProject.id,
-        name: editingProject.name.trim(),
-        type: editingProject.type.trim() || null,
-        status: editingProject.status,
-      }),
-    });
-    if (!res.ok) {
-      setMessage("项目更新失败");
-      return;
-    }
-    setMessage("项目已更新");
-    setEditingProject(null);
-    await loadProjects(selectedCustomerId);
-  };
-
-  return (
-    <div className="space-y-6 max-w-5xl">
-      <div>
-        <h2 className="text-xl font-bold text-slate-900">客户项目管理</h2>
-        <p className="mt-1 text-sm text-slate-500">维护轻量客户和项目主数据，用于需求提交、客户视图和统计分析。</p>
-      </div>
-      {message && <div className="text-xs text-blue-700 bg-blue-50 border border-blue-100 px-3 py-2 rounded-lg">{message}</div>}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="rounded-2xl border border-slate-200 p-5">
-          <h3 className="font-bold text-slate-900 mb-3">客户</h3>
-          <div className="flex gap-2 mb-4">
-            <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} disabled={!canManage} placeholder="客户名称" className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-            <button onClick={createCustomer} disabled={!canManage} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold disabled:opacity-60">新增</button>
-          </div>
-          <div className="space-y-2 max-h-96 overflow-y-auto">
-            {customers.map((customer) => (
-              <div key={customer.id} className={`rounded-lg border text-sm ${selectedCustomerId === String(customer.id) ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50"}`}>
-                {editingCustomer?.id === customer.id ? (
-                  <div className="p-3 space-y-2">
-                    <input
-                      value={editingCustomer.name}
-                      onChange={(e) => setEditingCustomer({ ...editingCustomer, name: e.target.value })}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                    />
-                    <select
-                      value={editingCustomer.status}
-                      onChange={(e) => setEditingCustomer({ ...editingCustomer, status: e.target.value })}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
-                    >
-                      <option value="active">启用</option>
-                      <option value="inactive">停用</option>
-                    </select>
-                    <div className="flex gap-2">
-                      <button onClick={updateCustomer} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold">保存</button>
-                      <button onClick={() => setEditingCustomer(null)} className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold">取消</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between gap-2 px-3 py-2">
-                    <button onClick={() => setSelectedCustomerId(String(customer.id))} className="min-w-0 flex-1 text-left">
-                      <span className="font-semibold text-slate-800">{customer.name}</span>
-                      <span className={`ml-2 text-xs ${customer.status === "inactive" ? "text-slate-400" : "text-emerald-600"}`}>
-                        {customer.status === "inactive" ? "已停用" : "启用中"}
-                      </span>
-                    </button>
-                    <div className="flex items-center gap-1">
-                      <a href={`/customers/${customer.id}`} className="px-2 py-1 text-xs font-bold text-blue-700 hover:bg-blue-100 rounded-md">详情</a>
-                      <button
-                        onClick={() => setEditingCustomer({ id: customer.id, name: customer.name, status: customer.status || "active" })}
-                        disabled={!canManage}
-                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-white rounded-md disabled:opacity-50"
-                        title="编辑客户"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="rounded-2xl border border-slate-200 p-5">
-          <h3 className="font-bold text-slate-900 mb-3">项目</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
-            <input value={projectName} onChange={(e) => setProjectName(e.target.value)} disabled={!canManage || !selectedCustomerId} placeholder="项目名称" className="px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-            <input value={projectType} onChange={(e) => setProjectType(e.target.value)} disabled={!canManage || !selectedCustomerId} placeholder="类型" className="px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-            <button onClick={createProject} disabled={!canManage || !selectedCustomerId} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold disabled:opacity-60">新增项目</button>
-          </div>
-          <div className="space-y-2 max-h-96 overflow-y-auto">
-            {projects.length === 0 ? <div className="text-sm text-slate-400">当前客户暂无项目。</div> : projects.map((project) => (
-              <div key={project.id} className="rounded-lg border border-slate-100 bg-slate-50 text-sm">
-                {editingProject?.id === project.id ? (
-                  <div className="p-3 space-y-2">
-                    <input
-                      value={editingProject.name}
-                      onChange={(e) => setEditingProject({ ...editingProject, name: e.target.value })}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                    />
-                    <input
-                      value={editingProject.type}
-                      onChange={(e) => setEditingProject({ ...editingProject, type: e.target.value })}
-                      placeholder="类型"
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                    />
-                    <select
-                      value={editingProject.status}
-                      onChange={(e) => setEditingProject({ ...editingProject, status: e.target.value })}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
-                    >
-                      <option value="active">启用</option>
-                      <option value="inactive">停用</option>
-                    </select>
-                    <div className="flex gap-2">
-                      <button onClick={updateProject} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold">保存</button>
-                      <button onClick={() => setEditingProject(null)} className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold">取消</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between gap-2 px-3 py-2">
-                    <div className="min-w-0">
-                      <span className="font-semibold text-slate-800">{project.name}</span>
-                      {project.type && <span className="ml-2 text-xs text-slate-400">{project.type}</span>}
-                      <span className={`ml-2 text-xs ${project.status === "inactive" ? "text-slate-400" : "text-emerald-600"}`}>
-                        {project.status === "inactive" ? "已停用" : "启用中"}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setEditingProject({ id: project.id, name: project.name, type: project.type || "", status: project.status || "active" })}
-                      disabled={!canManage}
-                      className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-white rounded-md disabled:opacity-50"
-                      title="编辑项目"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Download, Search, Sparkles, Calendar, User, Copy } from "lucide-react";
-import { DemandStatus, Priority, Department, Demand, FieldDefinition, type Customer, type DemandType, type DepartmentWorkflowConfig, type Project } from "../../../types";
+import { DemandStatus, Priority, Department, Demand, FieldDefinition, type DemandType, type DepartmentWorkflowConfig } from "../../../types";
 import { getSupabaseClient } from "../../../lib/supabase";
 import { authorizedFetch } from "../../../lib/authFetch";
 import { loadClientBusinessUser } from "../../../lib/clientBusinessUser";
@@ -84,13 +84,9 @@ export default function DemandsPage() {
   const [createdTo, setCreatedTo] = useState("");
   const [dueFrom, setDueFrom] = useState("");
   const [dueTo, setDueTo] = useState("");
-  const [selectedCustomerId, setSelectedCustomerId] = useState("");
-  const [selectedProjectId, setSelectedProjectId] = useState("");
   const [selectedDemandTypeId, setSelectedDemandTypeId] = useState("");
 
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
   const [demandTypes, setDemandTypes] = useState<DemandType[]>([]);
   const [demands, setDemands] = useState<Demand[]>([]);
   const [currentUserCode, setCurrentUserCode] = useState<string | null>(null);
@@ -147,8 +143,6 @@ export default function DemandsPage() {
     setCreatedTo("");
     setDueFrom("");
     setDueTo("");
-    setSelectedCustomerId("");
-    setSelectedProjectId("");
     setSelectedDemandTypeId("");
     setCreatorUserId("");
     setAssigneeUserId("");
@@ -180,43 +174,6 @@ export default function DemandsPage() {
 
     loadDepartments();
   }, []);
-
-  useEffect(() => {
-    const loadCustomers = async () => {
-      try {
-        const res = await authorizedFetch("/api/customers");
-        if (!res.ok) return;
-        const json = await res.json();
-        setCustomers(Array.isArray(json.items) ? json.items : []);
-      } catch (e) {
-        console.error("load customers for demands list error", e);
-      }
-    };
-    loadCustomers();
-  }, []);
-
-  useEffect(() => {
-    const loadProjects = async () => {
-      if (!selectedCustomerId) {
-        setProjects([]);
-        setSelectedProjectId("");
-        return;
-      }
-      try {
-        const res = await authorizedFetch(`/api/projects?customerId=${encodeURIComponent(selectedCustomerId)}`);
-        if (!res.ok) {
-          setProjects([]);
-          return;
-        }
-        const json = await res.json();
-        setProjects(Array.isArray(json.items) ? json.items : []);
-      } catch (e) {
-        console.error("load projects for demands list error", e);
-        setProjects([]);
-      }
-    };
-    loadProjects();
-  }, [selectedCustomerId]);
 
   useEffect(() => {
     const loadCurrentUser = async () => {
@@ -395,12 +352,6 @@ export default function DemandsPage() {
         if (dueTo) {
           params.set("dueTo", dueTo);
         }
-        if (selectedCustomerId) {
-          params.set("customerId", selectedCustomerId);
-        }
-        if (selectedProjectId) {
-          params.set("projectId", selectedProjectId);
-        }
         if (selectedDemandTypeId) {
           params.set("demandTypeId", selectedDemandTypeId);
         }
@@ -461,8 +412,6 @@ export default function DemandsPage() {
     createdTo,
     dueFrom,
     dueTo,
-    selectedCustomerId,
-    selectedProjectId,
     selectedDemandTypeId,
   ]);
 
@@ -796,7 +745,9 @@ export default function DemandsPage() {
 
   const canViewAllDemands = currentUserPermissions.includes("demand.view_all");
   const canViewDepartmentDemands = currentUserPermissions.includes("demand.view_department");
-  const canViewPersonalDemands = currentUserPermissions.includes("demand.view_personal");
+  const canViewPersonalDemands =
+    currentUserPermissions.includes("demand.view_personal") ||
+    currentUserPermissions.includes("demand.create");
   const availableRelationshipViews = React.useMemo(() => {
     const views: Array<{ key: "all" | "created" | "assigned"; label: string }> = [];
     if (canViewAllDemands || canViewDepartmentDemands) {
@@ -819,7 +770,7 @@ export default function DemandsPage() {
       return;
     }
 
-    const preferred = availableRelationshipViews.find((item) => item.key === "assigned");
+    const preferred = availableRelationshipViews.find((item) => item.key === "created");
     setRelationshipView((preferred?.key || availableRelationshipViews[0].key) as "all" | "created" | "assigned");
   }, [availableRelationshipViews, relationshipView]);
 
@@ -1323,43 +1274,6 @@ export default function DemandsPage() {
 
             <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4 text-sm text-slate-500">
               <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-1 min-w-0">
-                <span className="whitespace-nowrap sm:mr-1">客户</span>
-                <select
-                  value={selectedCustomerId}
-                  onChange={(e) => {
-                    setSelectedCustomerId(e.target.value);
-                    setPage(1);
-                  }}
-                  className="w-full sm:w-auto flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">全部客户</option>
-                  {customers.map((customer) => (
-                    <option key={customer.id} value={String(customer.id)}>
-                      {customer.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-1 min-w-0">
-                <span className="whitespace-nowrap sm:mr-1">项目</span>
-                <select
-                  value={selectedProjectId}
-                  onChange={(e) => {
-                    setSelectedProjectId(e.target.value);
-                    setPage(1);
-                  }}
-                  disabled={!selectedCustomerId || projects.length === 0}
-                  className="w-full sm:w-auto flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
-                >
-                  <option value="">{selectedCustomerId ? "全部项目" : "请先选择客户"}</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={String(project.id)}>
-                      {project.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-1 min-w-0">
                 <span className="whitespace-nowrap sm:mr-1">需求类型</span>
                 <select
                   value={selectedDemandTypeId}
@@ -1381,9 +1295,16 @@ export default function DemandsPage() {
             </div>
 
             {/* 高级筛选：按部门自定义字段 */}
-            {dynamicFilterFields.length > 0 && (
+            {selectedDept === "all" ? (
+              <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                选择具体部门后，可使用该部门已勾选“可筛选”的自定义字段进行高级筛选，例如客户、品牌、公司名、站点、链接等。
+              </div>
+            ) : dynamicFilterFields.length > 0 ? (
               <div className="flex flex-col gap-2 border-t border-slate-100 pt-4 text-xs text-slate-500">
                 <div className="font-semibold text-slate-600">高级筛选（按部门自定义字段）</div>
+                <div className="text-slate-400">
+                  客户、品牌、公司名等信息仍按部门字段筛选；如未出现，请在字段模板中勾选“可筛选”。
+                </div>
                 <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3">
                   {dynamicFilterFields.map((field) => {
                     const value = dynamicFilters[field.id] || "";
@@ -1470,6 +1391,10 @@ export default function DemandsPage() {
                   })}
                 </div>
               </div>
+            ) : (
+              <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                当前部门暂无可用于高级筛选的字段。需要按客户、品牌或公司名筛选时，请先到字段模板中把对应字段设为“可筛选”。
+              </div>
             )}
 
             <div className="flex md:justify-end">
@@ -1514,7 +1439,7 @@ export default function DemandsPage() {
               <tr>
                 <th className="px-6 py-5 w-28 whitespace-nowrap">ID</th>
                 <th className="px-6 py-5 whitespace-nowrap">需求标题</th>
-                <th className="px-6 py-5 w-40 text-center whitespace-nowrap">客户/项目</th>
+                <th className="px-6 py-5 w-40 text-center whitespace-nowrap">客户/品牌</th>
                 <th className="px-6 py-5 w-32 text-center whitespace-nowrap">类型</th>
                 <th className="px-6 py-5 w-40 text-center whitespace-nowrap">所属部门</th>
                 <th className="px-6 py-5 w-32 text-center whitespace-nowrap">优先级</th>
@@ -1549,17 +1474,13 @@ export default function DemandsPage() {
                     </td>
                     <td className="px-6 py-5 text-center whitespace-nowrap">
                       {demand.customerName ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (demand.customerId) router.push(`/customers/${demand.customerId}`);
-                          }}
-                          className="text-sm font-semibold text-blue-700 hover:underline"
-                        >
+                        <div className="inline-flex flex-col items-center gap-1 text-sm font-semibold text-slate-700">
                           {demand.customerName}
                           {demand.projectName ? <span className="block text-xs font-normal text-slate-400">{demand.projectName}</span> : null}
-                        </button>
+                          <span className="inline-flex px-2 py-0.5 rounded-full bg-slate-50 text-slate-500 border border-slate-100 text-[11px] font-bold">
+                            客户/品牌字段
+                          </span>
+                        </div>
                       ) : (demand.legacyCustomerName || demand.legacyProjectName) ? (
                         <div className="inline-flex flex-col items-center gap-1">
                           <span className="text-sm font-semibold text-slate-700">
