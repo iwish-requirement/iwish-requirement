@@ -5,7 +5,7 @@ export const runtime = "edge";
 import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, User, MessageSquare, CheckCircle2, Edit3, ArrowRight } from 'lucide-react';
+import { ArrowLeft, User, MessageSquare, CheckCircle2, Edit3, ArrowRight, Copy } from 'lucide-react';
 import { hasPermission } from '../../../../lib/permissions';
 import { authorizedFetch } from '../../../../lib/authFetch';
 import { DemandStatus } from '../../../../types';
@@ -330,6 +330,28 @@ export default function DemandDetailPage() {
     setSaveError(null);
   };
 
+  const handleCopyDemand = async () => {
+    if (!demand) return;
+    try {
+      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(demand.id)}/copy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        console.error('copy demand error', await res.text());
+        return;
+      }
+      const json = await res.json();
+      const nextId = json?.demand?.id as string | undefined;
+      if (nextId) {
+        router.push(`/demands/${nextId}`);
+      }
+    } catch (err) {
+      console.error('copy demand error', err);
+    }
+  };
+
   const handleCancelEdit = () => {
     if (demand) {
       setDraftTitle(demand.title);
@@ -635,6 +657,12 @@ export default function DemandDetailPage() {
                   </>
                 ) : (
                   <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleCopyDemand}
+                      className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-bold text-slate-600 bg-slate-50 rounded-lg hover:bg-slate-100 border border-slate-200"
+                    >
+                      <Copy className="w-3 h-3" /> 复制
+                    </button>
                     <button
                       onClick={handleStartEdit}
                       className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"

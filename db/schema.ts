@@ -76,13 +76,100 @@ export const demands = pgTable("demands", {
   departmentId: integer("department_id").notNull(),
   creatorId: integer("creator_id").notNull(),
   assigneeId: integer("assignee_id"),
+  customerId: integer("customer_id"),
+  projectId: integer("project_id"),
+  demandTypeId: integer("demand_type_id"),
   title: varchar("title", { length: 255 }).notNull(),
   status: text("status").notNull(),
   priority: text("priority"),
   fieldTemplateId: integer("field_template_id"),
   fields: jsonb("fields"),
   createdAt: timestamp("created_at").defaultNow(),
+  assignedAt: timestamp("assigned_at"),
+  startedAt: timestamp("started_at"),
   finishedAt: timestamp("finished_at"),
+  closedAt: timestamp("closed_at"),
+  delayedAt: timestamp("delayed_at"),
+});
+
+// Customers
+export const customers = pgTable("customers", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  level: varchar("level", { length: 50 }),
+  ownerUserId: integer("owner_user_id"),
+  status: varchar("status", { length: 50 }).default("active"),
+  remark: text("remark"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at"),
+});
+
+// Projects
+export const projects = pgTable("projects", {
+  id: serial("id").primaryKey(),
+  customerId: integer("customer_id").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  type: varchar("type", { length: 100 }),
+  url: text("url"),
+  ownerUserId: integer("owner_user_id"),
+  status: varchar("status", { length: 50 }).default("active"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at"),
+});
+
+// Demand Types (部门 + 需求类型模板)
+export const demandTypes = pgTable("demand_types", {
+  id: serial("id").primaryKey(),
+  departmentId: integer("department_id").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  code: varchar("code", { length: 100 }),
+  fieldTemplateId: integer("field_template_id"),
+  description: text("description"),
+  isActive: boolean("is_active").default(true),
+  orderIndex: integer("order_index"),
+  config: jsonb("config"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at"),
+});
+
+// Demand Quick Templates
+export const demandQuickTemplates = pgTable("demand_quick_templates", {
+  id: serial("id").primaryKey(),
+  ownerUserId: integer("owner_user_id"),
+  departmentId: integer("department_id").notNull(),
+  demandTypeId: integer("demand_type_id"),
+  name: varchar("name", { length: 255 }).notNull(),
+  scope: varchar("scope", { length: 20 }).notNull().default("personal"),
+  payload: jsonb("payload").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at"),
+});
+
+// Demand Drafts
+export const demandDrafts = pgTable("demand_drafts", {
+  id: serial("id").primaryKey(),
+  creatorId: integer("creator_id").notNull(),
+  source: varchar("source", { length: 50 }).notNull().default("manual"),
+  departmentId: integer("department_id"),
+  demandTypeId: integer("demand_type_id"),
+  customerId: integer("customer_id"),
+  projectId: integer("project_id"),
+  title: varchar("title", { length: 255 }),
+  payload: jsonb("payload").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("draft"),
+  createdDemandId: integer("created_demand_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at"),
+});
+
+// User Recent Inputs
+export const userRecentInputs = pgTable("user_recent_inputs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  inputType: varchar("input_type", { length: 50 }).notNull(),
+  value: text("value").notNull(),
+  metadata: jsonb("metadata"),
+  lastUsedAt: timestamp("last_used_at").defaultNow(),
 });
 
 // Score Templates (按部门的评分模板)
@@ -174,8 +261,15 @@ export const demandAttachments = pgTable("demand_attachments", {
 export const aiReports = pgTable("ai_reports", {
   id: serial("id").primaryKey(),
   departmentId: integer("department_id").notNull(),
+  scopeType: varchar("scope_type", { length: 50 }).notNull().default("department"),
+  scopeId: integer("scope_id"),
   period: varchar("period", { length: 20 }).notNull(),
   reportType: varchar("report_type", { length: 50 }).notNull(),
+  mode: varchar("mode", { length: 20 }).notNull().default("rule"),
+  status: varchar("status", { length: 20 }).notNull().default("success"),
+  error: text("error"),
+  generatedByUserId: integer("generated_by_user_id"),
+  generatedAt: timestamp("generated_at").defaultNow(),
   content: text("content").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });

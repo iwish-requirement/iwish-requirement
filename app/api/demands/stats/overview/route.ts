@@ -11,6 +11,11 @@ interface OverviewMetrics {
   demandsInProgress: number;
   demandsDelayed: number;
   avgCycleDays: number;
+  avgAssignHours: number;
+  avgResponseHours: number;
+  avgProcessingHours: number;
+  completionRate: number;
+  delayRate: number;
   scoreAvg: number;
   scoreCoverageRate: number;
 }
@@ -27,6 +32,12 @@ interface TrendPoint {
   completed: number;
 }
 
+interface BreakdownItem {
+  id: string;
+  name: string;
+  value: number;
+}
+
 interface OverviewResponseBody {
   scope: "company" | "department";
   period: string;
@@ -35,6 +46,9 @@ interface OverviewResponseBody {
   metrics: OverviewMetrics;
   departmentShare: DepartmentShareItem[];
   trend: TrendPoint[];
+  customerRanking: BreakdownItem[];
+  projectRanking: BreakdownItem[];
+  demandTypeDistribution: BreakdownItem[];
 }
 
 function getPeriodFromQuery(url: URL): string {
@@ -139,7 +153,7 @@ export async function GET(req: NextRequest) {
     const demandsCompletedQuery = applyDepartmentFilter(
       supabaseAdmin
         .from("demands")
-        .select("created_at, finished_at", { count: "exact" })
+        .select("created_at, assigned_at, started_at, finished_at, delayed_at", { count: "exact" })
         .in("status", ["done", "closed"])
         .gte("created_at", start)
         .lt("created_at", end),
@@ -169,7 +183,7 @@ export async function GET(req: NextRequest) {
     const departmentShareQuery = applyDepartmentFilter(
       supabaseAdmin
         .from("demands")
-        .select("department_id")
+        .select("department_id, customer_id, project_id, demand_type_id")
         .gte("created_at", start)
         .lt("created_at", end),
       departmentId,
@@ -201,6 +215,9 @@ export async function GET(req: NextRequest) {
     );
 
     const departmentsQuery = supabaseAdmin.from("departments").select("id, name");
+    const customersQuery = supabaseAdmin.from("customers").select("id, name");
+    const projectsQuery = supabaseAdmin.from("projects").select("id, name");
+    const demandTypesQuery = supabaseAdmin.from("demand_types").select("id, name");
 
     const [
       demandsCreatedResult,
@@ -212,6 +229,9 @@ export async function GET(req: NextRequest) {
       scoreRecordsResult,
       scoreTasksResult,
       departmentsResult,
+      customersResult,
+      projectsResult,
+      demandTypesResult,
     ] = await Promise.all([
       demandsCreatedQuery,
       demandsCompletedQuery,
@@ -222,6 +242,9 @@ export async function GET(req: NextRequest) {
       scoreRecordsQuery,
       scoreTasksQuery,
       departmentsQuery,
+      customersQuery,
+      projectsQuery,
+      demandTypesQuery,
     ] as const);
 
     const errors = [
@@ -234,6 +257,9 @@ export async function GET(req: NextRequest) {
       scoreRecordsResult.error,
       scoreTasksResult.error,
       departmentsResult.error,
+      customersResult.error,
+      projectsResult.error,
+      demandTypesResult.error,
     ].filter(Boolean);
 
     if (errors.length > 0) {
@@ -250,13 +276,25 @@ export async function GET(req: NextRequest) {
     const demandsDelayed = demandsDelayedResult.count ?? 0;
 
     let avgCycleDays = 0;
+    let avgAssignHours = 0;
+    let avgResponseHours = 0;
+    let avgProcessingHours = 0;
     const completedRows = (demandsCompletedResult.data || []) as {
       created_at: string | null;
+      assigned_at: string | null;
+      started_at: string | null;
       finished_at: string | null;
+      delayed_at: string | null;
     }[];
     if (completedRows.length > 0) {
       let totalDays = 0;
       let validCount = 0;
+      let totalAssignHours = 0;
+      let assignCount = 0;
+      let totalResponseHours = 0;
+      let responseCount = 0;
+      let totalProcessingHours = 0;
+      let processingCount = 0;
 
       for (const row of completedRows) {
         if (!row.created_at || !row.finished_at) {
@@ -269,10 +307,38 @@ export async function GET(req: NextRequest) {
         }
         totalDays += (finishedAt - createdAt) / (1000 * 60 * 60 * 24);
         validCount += 1;
+
+        if (row.assigned_at) {
+          const assignedAt = new Date(row.assigned_at).getTime();
+          if (Number.isFinite(assignedAt) && assignedAt >= createdAt) {
+            totalAssignHours += (assignedAt - createdAt) / (1000 * 60 * 60);
+            assignCount += 1;
+          }
+        }
+        if (row.started_at) {
+          const startedAt = new Date(row.started_at).getTime();
+          if (Number.isFinite(startedAt) && startedAt >= createdAt) {
+            totalResponseHours += (startedAt - createdAt) / (1000 * 60 * 60);
+            responseCount += 1;
+          }
+          if (Number.isFinite(startedAt) && finishedAt >= startedAt) {
+            totalProcessingHours += (finishedAt - startedAt) / (1000 * 60 * 60);
+            processingCount += 1;
+          }
+        }
       }
 
       if (validCount > 0) {
         avgCycleDays = totalDays / validCount;
+      }
+      if (assignCount > 0) {
+        avgAssignHours = totalAssignHours / assignCount;
+      }
+      if (responseCount > 0) {
+        avgResponseHours = totalResponseHours / responseCount;
+      }
+      if (processingCount > 0) {
+        avgProcessingHours = totalProcessingHours / processingCount;
       }
     }
 
@@ -281,14 +347,42 @@ export async function GET(req: NextRequest) {
     for (const dept of deptRows) {
       deptMap.set(dept.id, (dept.name || "未命名部门").toString());
     }
+    const customerMap = new Map<number, string>();
+    for (const customer of (customersResult.data || []) as { id: number; name: string | null }[]) {
+      customerMap.set(customer.id, (customer.name || "未命名客户").toString());
+    }
+    const projectMap = new Map<number, string>();
+    for (const project of (projectsResult.data || []) as { id: number; name: string | null }[]) {
+      projectMap.set(project.id, (project.name || "未命名项目").toString());
+    }
+    const demandTypeMap = new Map<number, string>();
+    for (const type of (demandTypesResult.data || []) as { id: number; name: string | null }[]) {
+      demandTypeMap.set(type.id, (type.name || "未命名类型").toString());
+    }
 
     const departmentAggregate = new Map<number, number>();
-    const departmentRows = (departmentShareResult.data || []) as { department_id: number | null }[];
+    const customerAggregate = new Map<number, number>();
+    const projectAggregate = new Map<number, number>();
+    const demandTypeAggregate = new Map<number, number>();
+    const departmentRows = (departmentShareResult.data || []) as {
+      department_id: number | null;
+      customer_id: number | null;
+      project_id: number | null;
+      demand_type_id: number | null;
+    }[];
     for (const row of departmentRows) {
-      if (!row.department_id) {
-        continue;
+      if (row.department_id) {
+        departmentAggregate.set(row.department_id, (departmentAggregate.get(row.department_id) || 0) + 1);
       }
-      departmentAggregate.set(row.department_id, (departmentAggregate.get(row.department_id) || 0) + 1);
+      if (row.customer_id) {
+        customerAggregate.set(row.customer_id, (customerAggregate.get(row.customer_id) || 0) + 1);
+      }
+      if (row.project_id) {
+        projectAggregate.set(row.project_id, (projectAggregate.get(row.project_id) || 0) + 1);
+      }
+      if (row.demand_type_id) {
+        demandTypeAggregate.set(row.demand_type_id, (demandTypeAggregate.get(row.demand_type_id) || 0) + 1);
+      }
     }
 
     const departmentShare: DepartmentShareItem[] = Array.from(departmentAggregate.entries())
@@ -298,6 +392,12 @@ export async function GET(req: NextRequest) {
         value,
       }))
       .sort((a, b) => b.value - a.value);
+
+    const toBreakdown = (aggregate: Map<number, number>, names: Map<number, string>): BreakdownItem[] =>
+      Array.from(aggregate.entries())
+        .map(([id, value]) => ({ id: String(id), name: names.get(id) || "未命名", value }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 10);
 
     const trendIndexMap = new Map<string, { demands: number; completed: number }>();
     for (const month of trendMonths) {
@@ -370,6 +470,8 @@ export async function GET(req: NextRequest) {
     const scoreCoverageRate = totalTasks > 0 ? completedTasks / totalTasks : 0;
 
     const deptName = scope === "department" && departmentId ? deptMap.get(departmentId) || null : null;
+    const completionRate = demandsCreated > 0 ? demandsCompleted / demandsCreated : 0;
+    const delayRate = demandsCreated > 0 ? demandsDelayed / demandsCreated : 0;
 
     const responseBody: OverviewResponseBody = {
       scope,
@@ -382,11 +484,19 @@ export async function GET(req: NextRequest) {
         demandsInProgress,
         demandsDelayed,
         avgCycleDays,
+        avgAssignHours,
+        avgResponseHours,
+        avgProcessingHours,
+        completionRate,
+        delayRate,
         scoreAvg,
         scoreCoverageRate,
       },
       departmentShare,
       trend,
+      customerRanking: toBreakdown(customerAggregate, customerMap),
+      projectRanking: toBreakdown(projectAggregate, projectMap),
+      demandTypeDistribution: toBreakdown(demandTypeAggregate, demandTypeMap),
     };
 
     return NextResponse.json(responseBody, {

@@ -51,6 +51,11 @@ interface OverviewMetrics {
   demandsInProgress: number;
   demandsDelayed: number;
   avgCycleDays: number;
+  avgAssignHours: number;
+  avgResponseHours: number;
+  avgProcessingHours: number;
+  completionRate: number;
+  delayRate: number;
   scoreAvg: number;
   scoreCoverageRate: number;
 }
@@ -65,6 +70,12 @@ interface TrendPoint {
   name: string;
   demands: number;
   completed: number;
+}
+
+interface BreakdownItem {
+  id: string;
+  name: string;
+  value: number;
 }
 
 interface DepartmentMemberStat {
@@ -130,6 +141,9 @@ export default function StatsPage() {
   const [overviewMetrics, setOverviewMetrics] = useState<OverviewMetrics | null>(null);
   const [departmentShare, setDepartmentShare] = useState<DepartmentShareItem[]>([]);
   const [trendData, setTrendData] = useState<TrendPoint[]>([]);
+  const [customerRanking, setCustomerRanking] = useState<BreakdownItem[]>([]);
+  const [projectRanking, setProjectRanking] = useState<BreakdownItem[]>([]);
+  const [demandTypeDistribution, setDemandTypeDistribution] = useState<BreakdownItem[]>([]);
   const [loadingOverview, setLoadingOverview] = useState(false);
   const [errorOverview, setErrorOverview] = useState<string | null>(null);
 
@@ -238,6 +252,9 @@ export default function StatsPage() {
             setOverviewMetrics(null);
             setDepartmentShare([]);
             setTrendData([]);
+            setCustomerRanking([]);
+            setProjectRanking([]);
+            setDemandTypeDistribution([]);
           }
           return;
         }
@@ -245,11 +262,17 @@ export default function StatsPage() {
           metrics: OverviewMetrics;
           departmentShare: DepartmentShareItem[];
           trend: TrendPoint[];
+          customerRanking?: BreakdownItem[];
+          projectRanking?: BreakdownItem[];
+          demandTypeDistribution?: BreakdownItem[];
         };
         if (!cancelled) {
           setOverviewMetrics(json.metrics || null);
           setDepartmentShare(Array.isArray(json.departmentShare) ? json.departmentShare : []);
           setTrendData(Array.isArray(json.trend) ? json.trend : []);
+          setCustomerRanking(Array.isArray(json.customerRanking) ? json.customerRanking : []);
+          setProjectRanking(Array.isArray(json.projectRanking) ? json.projectRanking : []);
+          setDemandTypeDistribution(Array.isArray(json.demandTypeDistribution) ? json.demandTypeDistribution : []);
         }
       } catch (e) {
         console.error("load overview statistics error", e);
@@ -258,6 +281,9 @@ export default function StatsPage() {
           setOverviewMetrics(null);
           setDepartmentShare([]);
           setTrendData([]);
+          setCustomerRanking([]);
+          setProjectRanking([]);
+          setDemandTypeDistribution([]);
         }
       } finally {
         if (!cancelled) {
@@ -473,10 +499,61 @@ export default function StatsPage() {
                 : "--"}
             </div>
           </div>
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+            <div className="text-xs text-slate-500 mb-1">响应时长（小时）</div>
+            <div className="text-2xl font-bold text-blue-600">
+              {overviewMetrics ? overviewMetrics.avgResponseHours.toFixed(1) : "--"}
+            </div>
+          </div>
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+            <div className="text-xs text-slate-500 mb-1">处理时长（小时）</div>
+            <div className="text-2xl font-bold text-cyan-700">
+              {overviewMetrics ? overviewMetrics.avgProcessingHours.toFixed(1) : "--"}
+            </div>
+          </div>
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+            <div className="text-xs text-slate-500 mb-1">完成率</div>
+            <div className="text-2xl font-bold text-emerald-600">
+              {overviewMetrics ? `${(overviewMetrics.completionRate * 100).toFixed(0)}%` : "--"}
+            </div>
+          </div>
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+            <div className="text-xs text-slate-500 mb-1">延期率</div>
+            <div className="text-2xl font-bold text-amber-600">
+              {overviewMetrics ? `${(overviewMetrics.delayRate * 100).toFixed(0)}%` : "--"}
+            </div>
+          </div>
         </div>
       </div>
 
       <DynamicFieldStatisticsSection selectedDeptId={selectedDeptId} selectedPeriod={selectedPeriod} />
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {[
+          { title: "客户需求排行", items: customerRanking },
+          { title: "项目需求排行", items: projectRanking },
+          { title: "需求类型分布", items: demandTypeDistribution },
+        ].map((section) => (
+          <div key={section.title} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-900 mb-4">{section.title}</h3>
+            {section.items.length === 0 ? (
+              <div className="text-xs text-slate-400">当前周期暂无可统计数据。</div>
+            ) : (
+              <div className="space-y-3">
+                {section.items.map((item, index) => (
+                  <div key={item.id} className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex items-center gap-2">
+                      <span className="text-xs text-slate-400 w-5">{index + 1}</span>
+                      <span className="text-sm font-medium text-slate-700 truncate">{item.name}</span>
+                    </div>
+                    <span className="text-sm font-bold text-slate-900">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
 

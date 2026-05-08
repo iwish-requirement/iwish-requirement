@@ -390,9 +390,12 @@ async function buildRuleBasedMonthlyReport(
   const report: AiMonthlyReport = {
     departmentId: String(departmentId),
     departmentName,
+    scopeType: "department",
+    scopeId: String(departmentId),
     period,
     reportType: "部门月度绩效总结",
     mode: "rule",
+    status: "success",
     generatedAt,
     summaryKeywords,
     chapters,
@@ -522,12 +525,18 @@ export async function GET(req: NextRequest) {
       report = await buildRuleBasedMonthlyReport(departmentId, normalizedPeriod);
 
       try {
-        const insertResult = await supabaseAdmin.from("ai_reports").insert({
-          department_id: departmentId,
-          period: normalizedPeriod,
-          report_type: reportType,
-          content: JSON.stringify(report),
-        });
+      const insertResult = await supabaseAdmin.from("ai_reports").insert({
+        department_id: departmentId,
+        scope_type: "department",
+        scope_id: departmentId,
+        period: normalizedPeriod,
+        report_type: reportType,
+        mode: report.mode,
+        status: report.status || "success",
+        generated_by_user_id: currentUser.id,
+        generated_at: report.generatedAt,
+        content: JSON.stringify(report),
+      });
 
         if (insertResult.error) {
           console.error("[api/ai-reports/monthly] insert ai_reports error", insertResult.error);
