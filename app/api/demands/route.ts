@@ -291,6 +291,7 @@ export async function GET(req: NextRequest) {
     const createdTo = url.searchParams.get("createdTo");
     const dueFrom = url.searchParams.get("dueFrom");
     const dueTo = url.searchParams.get("dueTo");
+    const scopeParam = url.searchParams.get("scope");
 
     const customFieldFilters: { key: string; value: string }[] = [];
     for (const [key, value] of url.searchParams.entries()) {
@@ -405,15 +406,27 @@ export async function GET(req: NextRequest) {
         ].join(","));
       }
 
-      if (canViewAll) {
+      const personalAccessClause = canViewPersonal
+        ? `creator_id.eq.${currentUser.id},assignee_id.eq.${currentUser.id}`
+        : "";
+      const personalScopeOnly = scopeParam === "personal";
+
+      if (canViewAll && !personalScopeOnly) {
         return query;
       }
 
+      if (personalScopeOnly) {
+        return personalAccessClause ? query.or(personalAccessClause) : query.eq("id", -1);
+      }
+
       if (canViewDepartment && currentUser.departmentId) {
+        if (personalAccessClause) {
+          return query.or(`department_id.eq.${currentUser.departmentId},${personalAccessClause}`);
+        }
         return query.eq("department_id", currentUser.departmentId);
       }
 
-      return query.or(`creator_id.eq.${currentUser.id},assignee_id.eq.${currentUser.id}`);
+      return personalAccessClause ? query.or(personalAccessClause) : query.eq("id", -1);
 
     };
 

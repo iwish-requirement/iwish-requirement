@@ -288,7 +288,7 @@ export default function Dashboard() {
         params.set('recentSize', '5');
 
         if (scope === 'personal' && userInfo.id) {
-          params.set('assigneeUserId', String(userInfo.id));
+          params.set('scope', 'personal');
         } else if (scope === 'department' && userInfo.departmentId) {
           params.set('departmentId', String(userInfo.departmentId));
         }
