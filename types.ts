@@ -71,6 +71,15 @@ export interface Demand {
   title: string;
   description: string;
   departmentId: string;
+  demandTypeId?: number;
+  demandTypeName?: string;
+  customerId?: number;
+  customerName?: string;
+  projectId?: number;
+  projectName?: string;
+  legacyCustomerName?: string | null;
+  legacyProjectName?: string | null;
+  customerDisplaySource?: 'entity' | 'legacy' | null;
   creatorId: string;
   assigneeId?: string;
   creatorUserId?: number;
@@ -89,9 +98,56 @@ export interface Demand {
   priorityLabel?: string;
   priorityColor?: string;
   createdAt: string;
+  assignedAt?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  closedAt?: string | null;
+  delayedAt?: string | null;
   dueDate: string;
   // Dynamic fields simulation
   customFields?: Record<string, string | number | any>;
+}
+
+export interface Customer {
+  id: number;
+  name: string;
+  level?: string | null;
+  ownerUserId?: number | null;
+  status?: string | null;
+  remark?: string | null;
+}
+
+export interface Project {
+  id: number;
+  customerId: number;
+  name: string;
+  type?: string | null;
+  url?: string | null;
+  ownerUserId?: number | null;
+  status?: string | null;
+}
+
+export interface DemandType {
+  id: number;
+  departmentId: number;
+  name: string;
+  code?: string | null;
+  fieldTemplateId?: number | null;
+  description?: string | null;
+  isActive: boolean;
+  orderIndex?: number | null;
+}
+
+export interface DemandDraft {
+  id: number;
+  source: string;
+  departmentId?: number | null;
+  demandTypeId?: number | null;
+  customerId?: number | null;
+  projectId?: number | null;
+  title?: string | null;
+  payload: Record<string, any>;
+  status: string;
 }
 
 
@@ -168,6 +224,7 @@ export interface FieldDefinition {
 }
 
 export type AiReportGenerateMode = 'rule' | 'llm';
+export type AiReportScopeType = 'department' | 'customer' | 'project' | 'user';
 
 export interface AiReportMetric {
   id: string;
@@ -192,9 +249,13 @@ export interface AiMonthlyReport {
   id?: string;
   departmentId: string;
   departmentName?: string;
+  scopeType?: AiReportScopeType;
+  scopeId?: string;
   period: string;
   reportType: string;
   mode: AiReportGenerateMode;
+  status?: 'success' | 'fallback' | 'failed' | 'generating';
+  error?: string | null;
   generatedAt: string;
   summaryKeywords: string[];
   chapters: AiReportChapter[];

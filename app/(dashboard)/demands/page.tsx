@@ -2,8 +2,8 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Download, Search, Sparkles, Calendar, User } from "lucide-react";
-import { DemandStatus, Priority, Department, Demand, FieldDefinition, type DepartmentWorkflowConfig } from "../../../types";
+import { Plus, Download, Search, Sparkles, Calendar, User, Copy } from "lucide-react";
+import { DemandStatus, Priority, Department, Demand, FieldDefinition, type Customer, type DemandType, type DepartmentWorkflowConfig, type Project } from "../../../types";
 import { getSupabaseClient } from "../../../lib/supabase";
 import { authorizedFetch } from "../../../lib/authFetch";
 import { loadClientBusinessUser } from "../../../lib/clientBusinessUser";
@@ -84,8 +84,14 @@ export default function DemandsPage() {
   const [createdTo, setCreatedTo] = useState("");
   const [dueFrom, setDueFrom] = useState("");
   const [dueTo, setDueTo] = useState("");
+  const [selectedCustomerId, setSelectedCustomerId] = useState("");
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [selectedDemandTypeId, setSelectedDemandTypeId] = useState("");
 
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [demandTypes, setDemandTypes] = useState<DemandType[]>([]);
   const [demands, setDemands] = useState<Demand[]>([]);
   const [currentUserCode, setCurrentUserCode] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
@@ -141,6 +147,9 @@ export default function DemandsPage() {
     setCreatedTo("");
     setDueFrom("");
     setDueTo("");
+    setSelectedCustomerId("");
+    setSelectedProjectId("");
+    setSelectedDemandTypeId("");
     setCreatorUserId("");
     setAssigneeUserId("");
     setDynamicFilters({});
@@ -171,6 +180,43 @@ export default function DemandsPage() {
 
     loadDepartments();
   }, []);
+
+  useEffect(() => {
+    const loadCustomers = async () => {
+      try {
+        const res = await authorizedFetch("/api/customers");
+        if (!res.ok) return;
+        const json = await res.json();
+        setCustomers(Array.isArray(json.items) ? json.items : []);
+      } catch (e) {
+        console.error("load customers for demands list error", e);
+      }
+    };
+    loadCustomers();
+  }, []);
+
+  useEffect(() => {
+    const loadProjects = async () => {
+      if (!selectedCustomerId) {
+        setProjects([]);
+        setSelectedProjectId("");
+        return;
+      }
+      try {
+        const res = await authorizedFetch(`/api/projects?customerId=${encodeURIComponent(selectedCustomerId)}`);
+        if (!res.ok) {
+          setProjects([]);
+          return;
+        }
+        const json = await res.json();
+        setProjects(Array.isArray(json.items) ? json.items : []);
+      } catch (e) {
+        console.error("load projects for demands list error", e);
+        setProjects([]);
+      }
+    };
+    loadProjects();
+  }, [selectedCustomerId]);
 
   useEffect(() => {
     const loadCurrentUser = async () => {
@@ -242,6 +288,8 @@ export default function DemandsPage() {
     if (selectedDept === "all") {
       setDeptUsers([]);
       setDynamicFilterFields([]);
+      setDemandTypes([]);
+      setSelectedDemandTypeId("");
       setDynamicFilters({});
       setCreatorUserId("");
       setAssigneeUserId("");
@@ -251,9 +299,10 @@ export default function DemandsPage() {
     const loadDeptMeta = async () => {
       try {
         setDeptUsersLoading(true);
-        const [fieldsRes, usersRes] = await Promise.all([
+        const [fieldsRes, usersRes, demandTypesRes] = await Promise.all([
           authorizedFetch(`/api/department-fields?departmentId=${encodeURIComponent(selectedDept)}`),
           authorizedFetch(`/api/users/by-department?departmentId=${encodeURIComponent(selectedDept)}`),
+          authorizedFetch(`/api/departments/${encodeURIComponent(selectedDept)}/demand-types`),
         ]);
 
         if (fieldsRes.ok) {
@@ -277,10 +326,18 @@ export default function DemandsPage() {
           console.error("load department users for filters error", await usersRes.text());
           setDeptUsers([]);
         }
+
+        if (demandTypesRes.ok) {
+          const json = await demandTypesRes.json();
+          setDemandTypes(Array.isArray(json.items) ? json.items : []);
+        } else {
+          setDemandTypes([]);
+        }
       } catch (e) {
         console.error("load department meta for filters error", e);
         setDynamicFilterFields([]);
         setDeptUsers([]);
+        setDemandTypes([]);
       } finally {
         setDeptUsersLoading(false);
       }
@@ -337,6 +394,15 @@ export default function DemandsPage() {
         }
         if (dueTo) {
           params.set("dueTo", dueTo);
+        }
+        if (selectedCustomerId) {
+          params.set("customerId", selectedCustomerId);
+        }
+        if (selectedProjectId) {
+          params.set("projectId", selectedProjectId);
+        }
+        if (selectedDemandTypeId) {
+          params.set("demandTypeId", selectedDemandTypeId);
         }
         Object.entries(dynamicFilters).forEach(([fieldId, value]) => {
           if (!value) return;
@@ -395,6 +461,9 @@ export default function DemandsPage() {
     createdTo,
     dueFrom,
     dueTo,
+    selectedCustomerId,
+    selectedProjectId,
+    selectedDemandTypeId,
   ]);
 
   useEffect(() => {
@@ -779,6 +848,27 @@ export default function DemandsPage() {
       setDeleteError("删除失败，请检查网络后重试");
     } finally {
       setDeleteSubmitting(false);
+    }
+  };
+
+  const handleCopyDemand = async (demand: Demand) => {
+    try {
+      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(demand.id)}/copy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        console.error("copy demand error", await res.text());
+        return;
+      }
+      const json = await res.json();
+      const newId = json?.demand?.id as string | undefined;
+      if (newId) {
+        router.push(`/demands/${newId}`);
+      }
+    } catch (e) {
+      console.error("copy demand error", e);
     }
   };
 
@@ -1231,6 +1321,65 @@ export default function DemandsPage() {
               </div>
             </div>
 
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4 text-sm text-slate-500">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-1 min-w-0">
+                <span className="whitespace-nowrap sm:mr-1">客户</span>
+                <select
+                  value={selectedCustomerId}
+                  onChange={(e) => {
+                    setSelectedCustomerId(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full sm:w-auto flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">全部客户</option>
+                  {customers.map((customer) => (
+                    <option key={customer.id} value={String(customer.id)}>
+                      {customer.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-1 min-w-0">
+                <span className="whitespace-nowrap sm:mr-1">项目</span>
+                <select
+                  value={selectedProjectId}
+                  onChange={(e) => {
+                    setSelectedProjectId(e.target.value);
+                    setPage(1);
+                  }}
+                  disabled={!selectedCustomerId || projects.length === 0}
+                  className="w-full sm:w-auto flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
+                >
+                  <option value="">{selectedCustomerId ? "全部项目" : "请先选择客户"}</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={String(project.id)}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-1 min-w-0">
+                <span className="whitespace-nowrap sm:mr-1">需求类型</span>
+                <select
+                  value={selectedDemandTypeId}
+                  onChange={(e) => {
+                    setSelectedDemandTypeId(e.target.value);
+                    setPage(1);
+                  }}
+                  disabled={selectedDept === "all" || demandTypes.length === 0}
+                  className="w-full sm:w-auto flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
+                >
+                  <option value="">{selectedDept === "all" ? "请先选择部门" : "全部类型"}</option>
+                  {demandTypes.map((item) => (
+                    <option key={item.id} value={String(item.id)}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             {/* 高级筛选：按部门自定义字段 */}
             {dynamicFilterFields.length > 0 && (
               <div className="flex flex-col gap-2 border-t border-slate-100 pt-4 text-xs text-slate-500">
@@ -1360,17 +1509,20 @@ export default function DemandsPage() {
           </div>
         )}
         <div className="overflow-x-auto">
-          <table className="min-w-[960px] w-full text-sm text-left">
+          <table className="min-w-[1180px] w-full text-sm text-left">
             <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
               <tr>
                 <th className="px-6 py-5 w-28 whitespace-nowrap">ID</th>
                 <th className="px-6 py-5 whitespace-nowrap">需求标题</th>
+                <th className="px-6 py-5 w-40 text-center whitespace-nowrap">客户/项目</th>
+                <th className="px-6 py-5 w-32 text-center whitespace-nowrap">类型</th>
                 <th className="px-6 py-5 w-40 text-center whitespace-nowrap">所属部门</th>
                 <th className="px-6 py-5 w-32 text-center whitespace-nowrap">优先级</th>
                 <th className="px-6 py-5 w-32 text-center whitespace-nowrap">状态</th>
                 <th className="px-6 py-5 w-32 text-center whitespace-nowrap">提交人</th>
                 <th className="px-6 py-5 w-32 text-center whitespace-nowrap">执行人</th>
                 <th className="px-6 py-5 w-40 text-center whitespace-nowrap">截止日期</th>
+                <th className="px-6 py-5 w-28 text-center whitespace-nowrap">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -1394,6 +1546,38 @@ export default function DemandsPage() {
                         {demand.description}
                       </div>
                       {renderRelationshipBadges(demand)}
+                    </td>
+                    <td className="px-6 py-5 text-center whitespace-nowrap">
+                      {demand.customerName ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (demand.customerId) router.push(`/customers/${demand.customerId}`);
+                          }}
+                          className="text-sm font-semibold text-blue-700 hover:underline"
+                        >
+                          {demand.customerName}
+                          {demand.projectName ? <span className="block text-xs font-normal text-slate-400">{demand.projectName}</span> : null}
+                        </button>
+                      ) : (demand.legacyCustomerName || demand.legacyProjectName) ? (
+                        <div className="inline-flex flex-col items-center gap-1">
+                          <span className="text-sm font-semibold text-slate-700">
+                            {demand.legacyCustomerName || "历史客户未填"}
+                          </span>
+                          {demand.legacyProjectName ? (
+                            <span className="text-xs text-slate-400">{demand.legacyProjectName}</span>
+                          ) : null}
+                          <span className="inline-flex px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-[11px] font-bold">
+                            历史字段
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400">未关联</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-5 text-center whitespace-nowrap">
+                      <span className="text-sm text-slate-700">{demand.demandTypeName || "-"}</span>
                     </td>
                     <td className="px-6 py-5 whitespace-nowrap">
                       <div className="flex items-center justify-center gap-2">
@@ -1423,6 +1607,18 @@ export default function DemandsPage() {
                       )}
                     </td>
                     <td className="px-6 py-5 text-center whitespace-nowrap text-slate-600 font-medium">{demand.dueDate}</td>
+                    <td className="px-6 py-5 text-center whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCopyDemand(demand);
+                        }}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-100"
+                      >
+                        <Copy className="w-3 h-3" /> 复制
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -1764,6 +1960,25 @@ export default function DemandsPage() {
 
               </div>
               <h3 className="text-lg font-bold text-slate-900 mb-2">{demand.title}</h3>
+              {(demand.customerName || demand.legacyCustomerName || demand.legacyProjectName || demand.demandTypeName) && (
+                <div className="mb-2 flex flex-wrap gap-2 text-xs">
+                  {demand.customerName && (
+                    <span className="px-2 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
+                      {demand.customerName}{demand.projectName ? ` / ${demand.projectName}` : ''}
+                    </span>
+                  )}
+                  {!demand.customerName && (demand.legacyCustomerName || demand.legacyProjectName) && (
+                    <span className="px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
+                      {(demand.legacyCustomerName || '历史客户')}{demand.legacyProjectName ? ` / ${demand.legacyProjectName}` : ''} · 历史字段
+                    </span>
+                  )}
+                  {demand.demandTypeName && (
+                    <span className="px-2 py-1 rounded-full bg-slate-50 text-slate-600 border border-slate-200">
+                      {demand.demandTypeName}
+                    </span>
+                  )}
+                </div>
+              )}
               <p className="text-sm text-slate-500 mb-4 line-clamp-2">{demand.description}</p>
               {renderRelationshipBadges(demand)}
 
@@ -1806,6 +2021,15 @@ export default function DemandsPage() {
                   }}
                 >
                   编辑
+                </button>
+                <button
+                  className="px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-50 rounded-lg border border-slate-200"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCopyDemand(demand);
+                  }}
+                >
+                  复制
                 </button>
                 <button
                   className="px-3 py-1.5 text-sm font-medium text-rose-600 bg-rose-50 rounded-lg border border-rose-100"

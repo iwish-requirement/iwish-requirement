@@ -117,6 +117,51 @@ const PERMISSION_GROUPS: {
   },
 ];
 
+const ROLE_PRESETS: { id: string; label: string; permissions: PermissionKey[] }[] = [
+  {
+    id: "submitter",
+    label: "普通提交人",
+    permissions: ["demand.view_personal", "demand.create"],
+  },
+  {
+    id: "executor",
+    label: "部门执行人",
+    permissions: ["demand.view_department", "demand.edit", "stats.view"],
+  },
+  {
+    id: "department-leader",
+    label: "部门负责人",
+    permissions: [
+      "demand.view_department",
+      "demand.create",
+      "demand.edit",
+      "stats.view",
+      "stats.overview",
+      "stats.department_members",
+      "stats.dynamic_fields",
+      "department.fields_manage",
+      "settings.fields.view",
+    ],
+  },
+  {
+    id: "score-admin",
+    label: "评分管理员",
+    permissions: [
+      "stats.view",
+      "stats.scores",
+      "settings.scoring.view",
+      "settings.scoring.manage",
+      "settings.score_periods.view",
+      "settings.score_periods.manage",
+    ],
+  },
+  {
+    id: "system-admin",
+    label: "系统管理员",
+    permissions: Object.keys(PERMISSIONS) as PermissionKey[],
+  },
+];
+
 export default function RolePermissionOverview() {
 
   const [roles, setRoles] = useState<EditableRole[]>([]);
@@ -592,6 +637,29 @@ export default function RolePermissionOverview() {
                 <span className="text-[11px] text-slate-400">
                   可多选；用户最终权限 = 所有分配角色上的权限点合集
                 </span>
+              </div>
+              <div className="mb-3 rounded-xl border border-blue-100 bg-blue-50 p-3">
+                <div className="text-xs font-bold text-blue-900 mb-2">预设角色包</div>
+                <div className="flex flex-wrap gap-2">
+                  {ROLE_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => {
+                        setModalPermissions(Array.from(new Set(preset.permissions)));
+                        if (!modalName.trim()) {
+                          setModalName(preset.label);
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-full border border-blue-200 bg-white text-xs font-bold text-blue-700 hover:bg-blue-100"
+                    >
+                      套用{preset.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] text-blue-700">
+                  预设只负责快速勾选权限点，保存前仍可继续增删具体权限。
+                </p>
               </div>
               <div className="flex items-center gap-3 mb-3">
                 <div className="relative flex-1">

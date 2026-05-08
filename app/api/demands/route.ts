@@ -4,6 +4,8 @@ import { getBusinessUserFromRequest, ensureActiveUser } from "../../../lib/serve
 import { DemandStatus, Priority, Demand, DepartmentWorkflowConfig } from "../../../types";
 import { sendWecomAppTextMessage } from "../../../lib/wecomApp";
 import { loadEffectivePermissionsForUser } from "../../../lib/serverPermissions";
+import { writeAuditLog } from "../../../lib/audit";
+import { extractLegacyCustomerProject } from "../../../lib/legacyDemandFields";
 import {
   resolveAssignedStatusValue,
   resolveDepartmentDemandRules,
@@ -20,7 +22,30 @@ const DEPT_SLUG_MAP: Record<string, string> = {
 };
 
 const DEMAND_LIST_SELECT =
-  "id, department_id, creator_id, assignee_id, title, status, priority, fields, created_at";
+  "id, department_id, creator_id, assignee_id, customer_id, project_id, demand_type_id, title, status, priority, fields, created_at, assigned_at, started_at, finished_at, closed_at, delayed_at";
+
+const LEGACY_SEARCH_FIELD_KEYS = [
+  "客户",
+  "客户名称",
+  "客户名",
+  "品牌",
+  "品牌名",
+  "公司",
+  "公司名",
+  "公司名称",
+  "customer",
+  "brand",
+  "company",
+  "项目",
+  "项目名称",
+  "站点",
+  "店铺",
+  "链接",
+  "网址",
+  "project",
+  "site",
+  "url",
+];
 
 function mapStatus(status: string | null): DemandStatus {
   const value = (status ?? '').toString();
@@ -111,6 +136,9 @@ function mapRowToDemand(row: any): Demand {
     title: row.title as string,
     description,
     departmentId,
+    demandTypeId: typeof row.demand_type_id === "number" ? row.demand_type_id : undefined,
+    customerId: typeof row.customer_id === "number" ? row.customer_id : undefined,
+    projectId: typeof row.project_id === "number" ? row.project_id : undefined,
     creatorId,
     assigneeId,
     creatorUserId: typeof row.creator_id === "number" ? (row.creator_id as number) : undefined,
@@ -118,9 +146,27 @@ function mapRowToDemand(row: any): Demand {
     status: status as DemandStatus,
     priority,
     createdAt,
+    assignedAt: row.assigned_at || null,
+    startedAt: row.started_at || null,
+    finishedAt: row.finished_at || null,
+    closedAt: row.closed_at || null,
+    delayedAt: row.delayed_at || null,
     dueDate,
     customFields: Object.keys(rest).length ? rest : undefined,
   };
+}
+
+function normalizeOptionalId(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number.parseInt(value.trim(), 10);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
 }
 
 async function loadWorkflowConfigForDepartment(
@@ -237,6 +283,9 @@ export async function GET(req: NextRequest) {
     const creatorCode = url.searchParams.get("creatorCode");
     const creatorUserIdParam = url.searchParams.get("creatorUserId");
     const assigneeUserIdParam = url.searchParams.get("assigneeUserId");
+    const customerIdParam = url.searchParams.get("customerId");
+    const projectIdParam = url.searchParams.get("projectId");
+    const demandTypeIdParam = url.searchParams.get("demandTypeId");
     const q = url.searchParams.get("q") || "";
     const createdFrom = url.searchParams.get("createdFrom");
     const createdTo = url.searchParams.get("createdTo");
@@ -345,9 +394,13 @@ export async function GET(req: NextRequest) {
 
       if (q) {
         const pattern = `%${q}%`;
-        query = query.or(
-          `title.ilike.${pattern},fields->>description.ilike.${pattern},fields->>code.ilike.${pattern}`
-        );
+        const legacyFieldClauses = LEGACY_SEARCH_FIELD_KEYS.map((key) => `fields->>${key}.ilike.${pattern}`);
+        query = query.or([
+          `title.ilike.${pattern}`,
+          `fields->>description.ilike.${pattern}`,
+          `fields->>code.ilike.${pattern}`,
+          ...legacyFieldClauses,
+        ].join(","));
       }
 
       if (canViewAll) {
@@ -412,6 +465,30 @@ export async function GET(req: NextRequest) {
       ) as number[];
 
       const workflowConfigMap = new Map<number, DepartmentWorkflowConfig>();
+      const customerIds = Array.from(
+        new Set(
+          rows
+            .map((row: any) => row.customer_id as number | null)
+            .filter((id) => typeof id === "number" && Number.isFinite(id))
+        )
+      ) as number[];
+      const projectIds = Array.from(
+        new Set(
+          rows
+            .map((row: any) => row.project_id as number | null)
+            .filter((id) => typeof id === "number" && Number.isFinite(id))
+        )
+      ) as number[];
+      const demandTypeIds = Array.from(
+        new Set(
+          rows
+            .map((row: any) => row.demand_type_id as number | null)
+            .filter((id) => typeof id === "number" && Number.isFinite(id))
+        )
+      ) as number[];
+      const customerMap = new Map<number, string>();
+      const projectMap = new Map<number, string>();
+      const demandTypeMap = new Map<number, string>();
 
       if (deptIdsForConfig.length > 0) {
         const { data: deptRows, error: deptCfgError } = await supabaseAdmin
@@ -432,6 +509,75 @@ export async function GET(req: NextRequest) {
           }
         }
       }
+
+      if (customerIdParam) {
+        const customerIdNumber = Number.parseInt(customerIdParam, 10);
+        if (!Number.isNaN(customerIdNumber) && customerIdNumber > 0) {
+          query = query.eq("customer_id", customerIdNumber);
+        }
+      }
+
+      if (projectIdParam) {
+        const projectIdNumber = Number.parseInt(projectIdParam, 10);
+        if (!Number.isNaN(projectIdNumber) && projectIdNumber > 0) {
+          query = query.eq("project_id", projectIdNumber);
+        }
+      }
+
+      if (demandTypeIdParam) {
+        const demandTypeIdNumber = Number.parseInt(demandTypeIdParam, 10);
+        if (!Number.isNaN(demandTypeIdNumber) && demandTypeIdNumber > 0) {
+          query = query.eq("demand_type_id", demandTypeIdNumber);
+        }
+      }
+
+      await Promise.all([
+        customerIds.length > 0
+          ? supabaseAdmin
+              .from("customers")
+              .select("id, name")
+              .in("id", customerIds)
+              .then(({ data, error }) => {
+                if (error) {
+                  console.error("[api/demands] load customers for list error", error);
+                  return;
+                }
+                for (const row of data || []) {
+                  customerMap.set(row.id as number, (row.name as string) || "未命名客户");
+                }
+              })
+          : Promise.resolve(),
+        projectIds.length > 0
+          ? supabaseAdmin
+              .from("projects")
+              .select("id, name")
+              .in("id", projectIds)
+              .then(({ data, error }) => {
+                if (error) {
+                  console.error("[api/demands] load projects for list error", error);
+                  return;
+                }
+                for (const row of data || []) {
+                  projectMap.set(row.id as number, (row.name as string) || "未命名项目");
+                }
+              })
+          : Promise.resolve(),
+        demandTypeIds.length > 0
+          ? supabaseAdmin
+              .from("demand_types")
+              .select("id, name")
+              .in("id", demandTypeIds)
+              .then(({ data, error }) => {
+                if (error) {
+                  console.error("[api/demands] load demand types for list error", error);
+                  return;
+                }
+                for (const row of data || []) {
+                  demandTypeMap.set(row.id as number, (row.name as string) || "未命名类型");
+                }
+              })
+          : Promise.resolve(),
+      ]);
 
       const items = rows.map((row: any) => {
         const demand: any = mapRowToDemand(row);
@@ -490,6 +636,25 @@ export async function GET(req: NextRequest) {
           demand.assigneeName = assigneeUser.name || demand.assigneeId;
           demand.assigneeEmail = assigneeUser.email || undefined;
         }
+
+        if (typeof row.customer_id === "number") {
+          demand.customerName = customerMap.get(row.customer_id);
+        }
+        if (typeof row.project_id === "number") {
+          demand.projectName = projectMap.get(row.project_id);
+        }
+        if (typeof row.demand_type_id === "number") {
+          demand.demandTypeName = demandTypeMap.get(row.demand_type_id);
+        }
+
+        const legacyDisplay = extractLegacyCustomerProject(demand.customFields || {});
+        demand.legacyCustomerName = legacyDisplay.legacyCustomerName;
+        demand.legacyProjectName = legacyDisplay.legacyProjectName;
+        demand.customerDisplaySource = demand.customerName || demand.projectName
+          ? "entity"
+          : legacyDisplay.legacyCustomerName || legacyDisplay.legacyProjectName
+          ? "legacy"
+          : null;
 
         return demand as Demand;
       });
@@ -615,6 +780,9 @@ export async function POST(req: NextRequest) {
     const creatorEmail = (body.creatorEmail as string | undefined)?.trim();
     const assigneeEmail = (body.assigneeEmail as string | undefined)?.trim();
     const customFields = (body.customFields as Record<string, any> | undefined) || {};
+    const customerId = normalizeOptionalId(body.customerId);
+    const projectId = normalizeOptionalId(body.projectId);
+    const demandTypeId = normalizeOptionalId(body.demandTypeId);
 
     if (!title || departmentIdRaw === undefined || departmentIdRaw === null || !creatorEmail) {
       return NextResponse.json(
@@ -662,6 +830,7 @@ export async function POST(req: NextRequest) {
       },
       { data: creatorUser, error: creatorError },
       { data: assigneeUser, error: assigneeError },
+      { data: demandType, error: demandTypeError },
     ] = await Promise.all([
       departmentIdNumber
         ? supabaseAdmin
@@ -686,6 +855,13 @@ export async function POST(req: NextRequest) {
             .eq("email", assigneeEmail)
             .maybeSingle()
         : Promise.resolve({ data: null, error: null } as any),
+      demandTypeId
+        ? supabaseAdmin
+            .from("demand_types")
+            .select("id, department_id, field_template_id, name")
+            .eq("id", demandTypeId)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null } as any),
 
     ]);
 
@@ -699,6 +875,20 @@ export async function POST(req: NextRequest) {
 
     if (!departmentIdNumber) {
       departmentIdNumber = dept.id as number;
+    }
+
+    if (demandTypeId && (demandTypeError || !demandType)) {
+      return NextResponse.json(
+        { error: "demand type not found", detail: demandTypeError?.message },
+        { status: 400 }
+      );
+    }
+
+    if (demandType && (demandType as any).department_id !== departmentIdNumber) {
+      return NextResponse.json(
+        { error: "demand type does not belong to selected department" },
+        { status: 400 }
+      );
     }
 
     if (!departmentKeyForFields && dept.slug) {
@@ -772,10 +962,14 @@ export async function POST(req: NextRequest) {
         department_id: departmentIdNumber,
         creator_id: creatorUser.id,
         assignee_id: assigneeUser?.id || null,
+        customer_id: customerId,
+        project_id: projectId,
+        demand_type_id: demandTypeId,
         title,
         status: initialStatus,
         priority: priority as string, // 支持自定义优先级
-        field_template_id: null,
+        field_template_id: (demandType as any)?.field_template_id || null,
+        assigned_at: assigneeUser?.id ? new Date().toISOString() : null,
         fields,
       })
       .select("*")
@@ -790,6 +984,30 @@ export async function POST(req: NextRequest) {
     }
 
     const demand = mapRowToDemand(data);
+
+    const recentInputs: { user_id: number; input_type: string; value: string; metadata?: Record<string, any> }[] = [];
+    if (customerId) recentInputs.push({ user_id: creatorUser.id as number, input_type: "customer", value: String(customerId) });
+    if (projectId) recentInputs.push({ user_id: creatorUser.id as number, input_type: "project", value: String(projectId) });
+    if (demandTypeId) recentInputs.push({ user_id: creatorUser.id as number, input_type: "demand_type", value: String(demandTypeId) });
+    if (dueDate) recentInputs.push({ user_id: creatorUser.id as number, input_type: "due_date", value: dueDate });
+    for (const [key, value] of Object.entries(customFields)) {
+      if (typeof value === "string" && value.trim() && /url|link|站点|链接|site/i.test(key)) {
+        recentInputs.push({ user_id: creatorUser.id as number, input_type: "link", value: value.trim(), metadata: { key } });
+      }
+    }
+    if (recentInputs.length > 0) {
+      supabaseAdmin.from("user_recent_inputs").insert(recentInputs).then(({ error }) => {
+        if (error) console.error("[api/demands] insert recent inputs error", error);
+      });
+    }
+
+    writeAuditLog({
+      userId: creatorUser.id as number,
+      entityType: "demand",
+      entityId: data.id as number,
+      action: "create",
+      metadata: { code: demand.id, source: "web" },
+    });
 
     const workflowConfigForMessage = await loadWorkflowConfigForDepartment(
       departmentIdNumber || (dept.id as number),

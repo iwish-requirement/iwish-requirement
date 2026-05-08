@@ -11,7 +11,7 @@ import { sendWecomAppTextMessage } from "../../../../lib/wecomApp";
 export const runtime = "edge";
 
 const DEMAND_DETAIL_SELECT =
-  "id, department_id, creator_id, assignee_id, title, status, priority, fields, created_at, finished_at";
+  "id, department_id, creator_id, assignee_id, customer_id, project_id, demand_type_id, field_template_id, title, status, priority, fields, created_at, assigned_at, started_at, finished_at, closed_at, delayed_at";
 
 function mapStatus(status: string | null): DemandStatus {
   const value = (status ?? "").toString();
@@ -108,14 +108,63 @@ function mapRowToDemand(row: any): Demand {
     title: row.title as string,
     description,
     departmentId,
+    demandTypeId: typeof row.demand_type_id === "number" ? row.demand_type_id : undefined,
+    customerId: typeof row.customer_id === "number" ? row.customer_id : undefined,
+    projectId: typeof row.project_id === "number" ? row.project_id : undefined,
     creatorId,
     assigneeId,
     status: status as DemandStatus,
     priority,
     createdAt,
+    assignedAt: row.assigned_at || null,
+    startedAt: row.started_at || null,
+    finishedAt: row.finished_at || null,
+    closedAt: row.closed_at || null,
+    delayedAt: row.delayed_at || null,
     dueDate,
     customFields: Object.keys(rest).length ? rest : undefined,
   };
+}
+
+function normalizeOptionalId(value: unknown): number | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null || value === "") {
+    return null;
+  }
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number.parseInt(value.trim(), 10);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function buildStatusTimestampUpdates(status: string | undefined, existing: any) {
+  const updates: Record<string, string> = {};
+  if (!status) return updates;
+  const normalized = status.toLowerCase();
+  const now = new Date().toISOString();
+
+  if ((normalized === "in_progress" || normalized === "review") && !existing.started_at) {
+    updates.started_at = now;
+  }
+  if (normalized === "delayed" && !existing.delayed_at) {
+    updates.delayed_at = now;
+  }
+  if (normalized === "done" && !existing.finished_at) {
+    updates.finished_at = now;
+  }
+  if (normalized === "closed" && !existing.closed_at) {
+    updates.closed_at = now;
+  }
+
+  return updates;
 }
 
 async function enrichDemandUsers(demand: Demand, row: any): Promise<Demand> {
@@ -280,6 +329,28 @@ export async function GET(
       demand.assigneeEmail = assigneeUser.email || undefined;
     }
 
+    const [customerResult, projectResult, demandTypeResult] = await Promise.all([
+      data.customer_id
+        ? supabaseAdmin.from("customers").select("name").eq("id", data.customer_id).maybeSingle()
+        : Promise.resolve({ data: null, error: null } as any),
+      data.project_id
+        ? supabaseAdmin.from("projects").select("name").eq("id", data.project_id).maybeSingle()
+        : Promise.resolve({ data: null, error: null } as any),
+      data.demand_type_id
+        ? supabaseAdmin.from("demand_types").select("name").eq("id", data.demand_type_id).maybeSingle()
+        : Promise.resolve({ data: null, error: null } as any),
+    ]);
+
+    if (!customerResult.error && customerResult.data) {
+      demand.customerName = (customerResult.data.name as string | null) || undefined;
+    }
+    if (!projectResult.error && projectResult.data) {
+      demand.projectName = (projectResult.data.name as string | null) || undefined;
+    }
+    if (!demandTypeResult.error && demandTypeResult.data) {
+      demand.demandTypeName = (demandTypeResult.data.name as string | null) || undefined;
+    }
+
     return NextResponse.json({ demand });
   } catch (error: any) {
     console.error("[api/demands/:id] error", error);
@@ -320,8 +391,11 @@ export async function PATCH(
     const customFields = (body.customFields as Record<string, any> | undefined) || undefined;
     const status = body.status as string | undefined;
     const assigneeEmail = (body.assigneeEmail as string | undefined)?.trim();
+    const customerId = normalizeOptionalId(body.customerId);
+    const projectId = normalizeOptionalId(body.projectId);
+    const demandTypeId = normalizeOptionalId(body.demandTypeId);
 
-    if (!title && !description && !priority && !dueDate && !customFields && !status && !assigneeEmail) {
+    if (!title && !description && !priority && !dueDate && !customFields && !status && !assigneeEmail && customerId === undefined && projectId === undefined && demandTypeId === undefined) {
       return NextResponse.json(
         { error: "no fields to update" },
         { status: 400 }
@@ -396,14 +470,36 @@ export async function PATCH(
       updates.priority = priority;
     }
 
+    if (customerId !== undefined) {
+      updates.customer_id = customerId;
+    }
+    if (projectId !== undefined) {
+      updates.project_id = projectId;
+    }
+    if (demandTypeId !== undefined) {
+      if (demandTypeId) {
+        const { data: demandType, error: demandTypeError } = await supabaseAdmin
+          .from("demand_types")
+          .select("id, department_id, field_template_id")
+          .eq("id", demandTypeId)
+          .maybeSingle();
+        if (demandTypeError || !demandType || (demandType as any).department_id !== existing.department_id) {
+          return NextResponse.json(
+            { error: "invalid demand type", detail: demandTypeError?.message },
+            { status: 400 },
+          );
+        }
+        updates.demand_type_id = demandTypeId;
+        updates.field_template_id = (demandType as any).field_template_id || existing.field_template_id || null;
+      } else {
+        updates.demand_type_id = null;
+      }
+    }
+
     // 状态更新到数据库字段（不再映射）
     if (status) {
       updates.status = status;
-    }
-
-    // 如果状态更新为已完成且之前没有完成时间，则写入 finished_at，方便后续评分与统计
-    if (status === "done" && !existing.finished_at) {
-      updates.finished_at = new Date().toISOString();
+      Object.assign(updates, buildStatusTimestampUpdates(status, existing));
     }
 
     if (assigneeEmail) {
@@ -430,6 +526,9 @@ export async function PATCH(
       }
 
       updates.assignee_id = assigneeUser.id;
+      if (!existing.assigned_at || previousAssigneeId !== (assigneeUser.id as number)) {
+        updates.assigned_at = new Date().toISOString();
+      }
       assignedUserId = assigneeUser.id as number;
       assignedWecomUserId = ((assigneeUser as any).wecom_user_id || "").toString().trim();
       fields.assigneeEmail = assigneeEmail;
