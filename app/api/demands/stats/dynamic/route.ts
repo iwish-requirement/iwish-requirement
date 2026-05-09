@@ -225,16 +225,7 @@ export async function GET(req: NextRequest) {
 
     if (statusParam) {
       const normalized = (statusParam || "").toString().toLowerCase();
-      const allowedStatus = [
-        "pending",
-        "in_progress",
-        "review",
-        "done",
-        "closed",
-        "delayed",
-        "ignored",
-      ];
-      if (allowedStatus.includes(normalized)) {
+      if (/^[a-z0-9_-]{1,80}$/.test(normalized)) {
         query = query.eq("status", normalized);
       }
     }

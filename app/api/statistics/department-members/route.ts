@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest } from "../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../lib/serverPermissions";
+import { buildDemandStatusGroups } from "../../../../lib/demandStatusGroups";
 
 
 export const runtime = "edge";
@@ -108,15 +109,21 @@ export async function GET(req: NextRequest) {
       scoresQuery.eq("period", normalizedPeriod);
     }
 
-    const [demandsResult, scoresResult] = await Promise.all([
+    const [demandsResult, scoresResult, departmentResult] = await Promise.all([
       demandsQuery,
       scoresQuery,
+      supabaseAdmin
+        .from("departments")
+        .select("status_config")
+        .eq("id", departmentId)
+        .maybeSingle(),
     ]);
 
-    if (demandsResult.error || scoresResult.error) {
+    if (demandsResult.error || scoresResult.error || departmentResult.error) {
       console.error("[api/statistics/department-members] query error", {
         demandsError: demandsResult.error,
         scoresError: scoresResult.error,
+        departmentError: departmentResult.error,
       });
       return NextResponse.json(
         { error: "failed_to_load_department_member_stats" },
@@ -132,6 +139,9 @@ export async function GET(req: NextRequest) {
       finished_at: string | null;
       status: string | null;
     }[];
+    const statusGroups = buildDemandStatusGroups(
+      departmentResult.data ? [departmentResult.data as { status_config?: unknown }] : [],
+    );
 
     for (const row of demandRows) {
       if (typeof row.assignee_id !== "number" || row.assignee_id <= 0) {
@@ -149,7 +159,7 @@ export async function GET(req: NextRequest) {
       existing.demandsAssignee += 1;
 
       const statusValue = (row.status ?? "").toString().toLowerCase();
-      if (statusValue === "done" || statusValue === "closed") {
+      if (statusGroups.completed.includes(statusValue)) {
         existing.demandsCompleted += 1;
 
         if (row.created_at && row.finished_at) {

@@ -7,6 +7,7 @@ import {
   resolveDepartmentDemandRules,
 } from "../../../../lib/departmentDemandRules";
 import { sendWecomAppTextMessage } from "../../../../lib/wecomApp";
+import { buildDemandStatusGroups, type DemandStatusGroups } from "../../../../lib/demandStatusGroups";
 
 export const runtime = "edge";
 
@@ -145,19 +146,26 @@ function normalizeOptionalId(value: unknown): number | null | undefined {
   return null;
 }
 
-function buildStatusTimestampUpdates(status: string | undefined, existing: any) {
+function buildStatusTimestampUpdates(status: string | undefined, existing: any, statusGroups?: DemandStatusGroups) {
   const updates: Record<string, string> = {};
   if (!status) return updates;
   const normalized = status.toLowerCase();
   const now = new Date().toISOString();
+  const isActive = statusGroups
+    ? statusGroups.active.includes(normalized) && !statusGroups.pending.includes(normalized)
+    : normalized === "in_progress" || normalized === "review";
+  const isDelayed = statusGroups ? statusGroups.delayed.includes(normalized) : normalized === "delayed";
+  const isCompleted = statusGroups
+    ? statusGroups.completed.includes(normalized)
+    : normalized === "done" || normalized === "closed";
 
-  if ((normalized === "in_progress" || normalized === "review") && !existing.started_at) {
+  if (isActive && !existing.started_at) {
     updates.started_at = now;
   }
-  if (normalized === "delayed" && !existing.delayed_at) {
+  if (isDelayed && !existing.delayed_at) {
     updates.delayed_at = now;
   }
-  if (normalized === "done" && !existing.finished_at) {
+  if (isCompleted && !existing.finished_at) {
     updates.finished_at = now;
   }
   if (normalized === "closed" && !existing.closed_at) {
@@ -439,6 +447,7 @@ export async function PATCH(
       (department as any).config,
       (department as any).slug,
     );
+    const statusGroups = buildDemandStatusGroups([department as { status_config?: unknown }]);
     const previousAssigneeId =
       typeof existing.assignee_id === "number" ? (existing.assignee_id as number) : null;
     let assignedWecomUserId = "";
@@ -499,7 +508,7 @@ export async function PATCH(
     // 状态更新到数据库字段（不再映射）
     if (status) {
       updates.status = status;
-      Object.assign(updates, buildStatusTimestampUpdates(status, existing));
+      Object.assign(updates, buildStatusTimestampUpdates(status, existing, statusGroups));
     }
 
     if (assigneeEmail) {
@@ -614,8 +623,7 @@ export async function PATCH(
 
       const normalizedStatus = nextStatus.toLowerCase();
       const isTerminalStatus =
-        normalizedStatus === "done" ||
-        normalizedStatus === "closed" ||
+        statusGroups.completed.includes(normalizedStatus) ||
         normalizedStatus === "ignored";
 
       const creatorId =

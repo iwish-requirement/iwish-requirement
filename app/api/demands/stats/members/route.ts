@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest } from "../../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../../lib/serverPermissions";
+import { buildDemandStatusGroups } from "../../../../../lib/demandStatusGroups";
 
 
 export const runtime = "edge";
@@ -72,7 +73,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "invalid departmentId" }, { status: 400 });
     }
 
-    const [demandsResult, usersResult, scoreRecordsResult] = await Promise.all([
+    const [demandsResult, usersResult, scoreRecordsResult, departmentResult] = await Promise.all([
       supabaseAdmin
         .from("demands")
         .select("id, assignee_id, status, created_at, finished_at")
@@ -88,6 +89,11 @@ export async function GET(req: NextRequest) {
         .select("target_user_id, scores, period, department_id")
         .eq("period", period)
         .eq("department_id", departmentId),
+      supabaseAdmin
+        .from("departments")
+        .select("status_config")
+        .eq("id", departmentId)
+        .maybeSingle(),
     ] as const);
 
     if (demandsResult.error) {
@@ -114,6 +120,14 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    if (departmentResult.error) {
+      console.error("[api/demands/stats/members] department query error", departmentResult.error);
+      return NextResponse.json(
+        { error: "failed_to_load_department", detail: departmentResult.error.message },
+        { status: 500 },
+      );
+    }
+
     const demandRows = (demandsResult.data || []) as {
       id: number;
       assignee_id: number | null;
@@ -135,6 +149,9 @@ export async function GET(req: NextRequest) {
       period: string;
       department_id: number | null;
     }[];
+    const statusGroups = buildDemandStatusGroups(
+      departmentResult.data ? [departmentResult.data as { status_config?: unknown }] : [],
+    );
 
     type MemberAccumulator = {
       demandsAssignee: number;
@@ -162,7 +179,7 @@ export async function GET(req: NextRequest) {
       bucket.demandsAssignee += 1;
 
       const status = (row.status || "").toLowerCase();
-      if (status === "done" || status === "closed") {
+      if (statusGroups.completed.includes(status)) {
         bucket.demandsCompleted += 1;
       }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest } from "../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../lib/serverPermissions";
+import { buildDemandStatusGroups } from "../../../../lib/demandStatusGroups";
 
 
 export const runtime = "edge";
@@ -74,6 +75,18 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const { data: departmentRows, error: departmentError } = await supabaseAdmin
+      .from("departments")
+      .select("status_config");
+    if (departmentError) {
+      console.error("[api/statistics/overview] department status config error", departmentError);
+      return NextResponse.json(
+        { error: "failed_to_load_demands_stats" },
+        { status: 500 },
+      );
+    }
+    const statusGroups = buildDemandStatusGroups((departmentRows || []) as { status_config?: unknown }[]);
+
     const demandsCreatedQuery = supabaseAdmin
       .from("demands")
       .select("id", { count: "exact", head: true })
@@ -83,12 +96,15 @@ export async function GET(req: NextRequest) {
     const demandsCompletedQuery = supabaseAdmin
       .from("demands")
       .select("id, created_at, finished_at", { count: "exact" })
-      .gte("finished_at", from)
-      .lt("finished_at", to);
+      .in("status", statusGroups.completed)
+      .gte("created_at", from)
+      .lt("created_at", to);
 
     const demandsStatusQuery = supabaseAdmin
       .from("demands")
-      .select("id, status", { count: "exact" });
+      .select("id, status", { count: "exact" })
+      .gte("created_at", from)
+      .lt("created_at", to);
 
     if (departmentId !== null) {
       demandsCreatedQuery.eq("department_id", departmentId);
@@ -123,9 +139,9 @@ export async function GET(req: NextRequest) {
 
     for (const row of statusRows) {
       const value = (row.status ?? "").toString().toLowerCase();
-      if (value === "in_progress") {
+      if (statusGroups.active.includes(value) && !statusGroups.pending.includes(value)) {
         demandsInProgress += 1;
-      } else if (value === "delayed") {
+      } else if (statusGroups.delayed.includes(value)) {
         demandsDelayed += 1;
       }
     }
