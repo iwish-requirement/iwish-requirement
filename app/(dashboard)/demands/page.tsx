@@ -748,6 +748,9 @@ export default function DemandsPage() {
   const canViewPersonalDemands =
     currentUserPermissions.includes("demand.view_personal") ||
     currentUserPermissions.includes("demand.create");
+  const canDeleteAnyDemand = currentUserPermissions.includes("demand.delete");
+  const canDeleteDemand = (demand: Demand) =>
+    canDeleteAnyDemand || (!!currentUserId && demand.creatorUserId === currentUserId);
   const availableRelationshipViews = React.useMemo(() => {
     const views: Array<{ key: "all" | "created" | "assigned"; label: string }> = [];
     if (canViewAllDemands || canViewDepartmentDemands) {
@@ -1952,16 +1955,18 @@ export default function DemandsPage() {
                 >
                   复制
                 </button>
-                <button
-                  className="px-3 py-1.5 text-sm font-medium text-rose-600 bg-rose-50 rounded-lg border border-rose-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteError(null);
-                    setDeleteTargetDemand(demand);
-                  }}
-                >
-                  删除
-                </button>
+                {canDeleteDemand(demand) && (
+                  <button
+                    className="px-3 py-1.5 text-sm font-medium text-rose-600 bg-rose-50 rounded-lg border border-rose-100"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteError(null);
+                      setDeleteTargetDemand(demand);
+                    }}
+                  >
+                    删除
+                  </button>
+                )}
               </div>
             </div>
           );
