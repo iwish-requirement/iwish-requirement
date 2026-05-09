@@ -124,6 +124,8 @@ export default function DashboardLayout({
       pageLabel = "数据统计";
     } else if (pathname.startsWith("/reports")) {
       pageLabel = "报告中心";
+    } else if (pathname.startsWith("/changelog")) {
+      pageLabel = "更新日志";
     } else if (pathname.startsWith("/settings")) {
       pageLabel = "系统设置";
     }

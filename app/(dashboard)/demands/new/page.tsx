@@ -219,22 +219,10 @@ export default function NewDemandPage() {
       }
 
       try {
-        const [fieldsRes, usersRes, demandTypesRes] = await Promise.all([
-          authorizedFetch(`/api/department-fields?departmentId=${encodeURIComponent(selectedDeptId)}`),
+        const [usersRes, demandTypesRes] = await Promise.all([
           authorizedFetch(`/api/users/by-department?departmentId=${encodeURIComponent(selectedDeptId)}`),
           authorizedFetch(`/api/departments/${encodeURIComponent(selectedDeptId)}/demand-types`),
         ]);
-
-        if (!fieldsRes.ok) {
-          console.error('load department fields error', await fieldsRes.text());
-          setDynamicFields([]);
-          setFormData({});
-        } else {
-          const json = await fieldsRes.json();
-          const items = (json.items || []) as FieldDefinition[];
-          setDynamicFields(items);
-          setFormData({});
-        }
 
         if (!demandTypesRes.ok) {
           console.error('load demand types error', await demandTypesRes.text());
@@ -276,6 +264,42 @@ export default function NewDemandPage() {
 
     loadFieldsAndUsers();
   }, [selectedDeptId]);
+
+  useEffect(() => {
+    const loadFields = async () => {
+      if (!selectedDeptId) {
+        setDynamicFields([]);
+        setFormData({});
+        return;
+      }
+
+      try {
+        const params = new URLSearchParams({ departmentId: selectedDeptId });
+        if (selectedDemandTypeId) {
+          params.set('demandTypeId', selectedDemandTypeId);
+        }
+
+        const res = await authorizedFetch(`/api/department-fields?${params.toString()}`);
+        if (!res.ok) {
+          console.error('load department fields error', await res.text());
+          setDynamicFields([]);
+          setFormData({});
+          return;
+        }
+
+        const json = await res.json();
+        const items = (json.items || []) as FieldDefinition[];
+        setDynamicFields(items);
+        setFormData({});
+      } catch (e) {
+        console.error('load department fields error', e);
+        setDynamicFields([]);
+        setFormData({});
+      }
+    };
+
+    loadFields();
+  }, [selectedDeptId, selectedDemandTypeId]);
 
   useEffect(() => {
     const deptIds = Array.from(
