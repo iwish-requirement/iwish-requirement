@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest } from "../../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../../lib/serverPermissions";
+import { buildDemandStatusGroups } from "../../../../../lib/demandStatusGroups";
 
 export const runtime = "edge";
 
@@ -138,6 +139,19 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const { data: departmentStatusRows, error: departmentStatusError } = await supabaseAdmin
+      .from("departments")
+      .select("id, name, status_config");
+
+    if (departmentStatusError) {
+      console.error("[api/demands/stats/overview] load department status config error", departmentStatusError);
+      return NextResponse.json(
+        { error: "failed_to_load_overview_stats" },
+        { status: 500 },
+      );
+    }
+
+    const statusGroups = buildDemandStatusGroups((departmentStatusRows || []) as { status_config?: unknown }[]);
     const trendMonths = getTrendMonths(period, 6);
     const trendStart = trendMonths.length > 0 ? `${trendMonths[0]}-01T00:00:00.000Z` : start;
 
@@ -154,7 +168,7 @@ export async function GET(req: NextRequest) {
       supabaseAdmin
         .from("demands")
         .select("created_at, assigned_at, started_at, finished_at, delayed_at", { count: "exact" })
-        .in("status", ["done", "closed"])
+        .in("status", statusGroups.completed)
         .gte("created_at", start)
         .lt("created_at", end),
       departmentId,
@@ -164,7 +178,7 @@ export async function GET(req: NextRequest) {
       supabaseAdmin
         .from("demands")
         .select("id", { head: true, count: "exact" })
-        .in("status", ["pending", "in_progress", "review"])
+        .in("status", statusGroups.active)
         .gte("created_at", start)
         .lt("created_at", end),
       departmentId,
@@ -174,7 +188,7 @@ export async function GET(req: NextRequest) {
       supabaseAdmin
         .from("demands")
         .select("id", { head: true, count: "exact" })
-        .eq("status", "delayed")
+        .in("status", statusGroups.delayed)
         .gte("created_at", start)
         .lt("created_at", end),
       departmentId,
@@ -214,7 +228,7 @@ export async function GET(req: NextRequest) {
       departmentId,
     );
 
-    const departmentsQuery = supabaseAdmin.from("departments").select("id, name");
+    const departmentsQuery = Promise.resolve({ data: departmentStatusRows, error: null } as any);
     const customersQuery = supabaseAdmin.from("customers").select("id, name");
     const projectsQuery = supabaseAdmin.from("projects").select("id, name");
     const demandTypesQuery = supabaseAdmin.from("demand_types").select("id, name");
@@ -416,7 +430,7 @@ export async function GET(req: NextRequest) {
       }
       bucket.demands += 1;
       const normalizedStatus = (row.status || "").toLowerCase();
-      if (normalizedStatus === "done" || normalizedStatus === "closed") {
+      if (statusGroups.completed.includes(normalizedStatus)) {
         bucket.completed += 1;
       }
     }

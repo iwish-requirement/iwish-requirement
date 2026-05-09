@@ -395,6 +395,7 @@ export default function Dashboard() {
   const canViewDept = hasPermission(rawRole, 'demand.view_department', rawPermissions);
   const canViewAll = hasPermission(rawRole, 'demand.view_all', rawPermissions);
   const canViewStats = hasPermission(rawRole, 'stats.view', rawPermissions);
+  const canViewOverviewStats = hasPermission(rawRole, 'stats.overview', rawPermissions);
   const hasDepartment = !!userInfo?.departmentId;
 
   const allowDepartmentScope = canViewDept && hasDepartment;
@@ -650,7 +651,7 @@ export default function Dashboard() {
             <div className="absolute bottom-0 left-0 -mb-6 -ml-6 w-24 h-24 bg-blue-400 opacity-20 rounded-full blur-xl"></div>
           </div>
 
-          <DepartmentProgress onDeptClick={() => router.push('/demands')} />
+          {canViewOverviewStats && <DepartmentProgress onDeptClick={() => router.push('/demands')} />}
 
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
             <h3 className="text-base font-bold text-slate-900 mb-5 uppercase tracking-wide text-opacity-80">快捷入口</h3>

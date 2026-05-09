@@ -6,6 +6,7 @@ import { sendWecomAppTextMessage } from "../../../lib/wecomApp";
 import { loadEffectivePermissionsForUser } from "../../../lib/serverPermissions";
 import { writeAuditLog } from "../../../lib/audit";
 import { extractLegacyCustomerProject } from "../../../lib/legacyDemandFields";
+import { buildDemandStatusGroups } from "../../../lib/demandStatusGroups";
 import {
   resolveAssignedStatusValue,
   resolveDepartmentDemandRules,
@@ -373,6 +374,27 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      if (customerIdParam) {
+        const customerIdNumber = Number.parseInt(customerIdParam, 10);
+        if (!Number.isNaN(customerIdNumber) && customerIdNumber > 0) {
+          query = query.eq("customer_id", customerIdNumber);
+        }
+      }
+
+      if (projectIdParam) {
+        const projectIdNumber = Number.parseInt(projectIdParam, 10);
+        if (!Number.isNaN(projectIdNumber) && projectIdNumber > 0) {
+          query = query.eq("project_id", projectIdNumber);
+        }
+      }
+
+      if (demandTypeIdParam) {
+        const demandTypeIdNumber = Number.parseInt(demandTypeIdParam, 10);
+        if (!Number.isNaN(demandTypeIdNumber) && demandTypeIdNumber > 0) {
+          query = query.eq("demand_type_id", demandTypeIdNumber);
+        }
+      }
+
       if (createdFrom) {
         query = query.gte("created_at", createdFrom);
       }
@@ -525,27 +547,6 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      if (customerIdParam) {
-        const customerIdNumber = Number.parseInt(customerIdParam, 10);
-        if (!Number.isNaN(customerIdNumber) && customerIdNumber > 0) {
-          query = query.eq("customer_id", customerIdNumber);
-        }
-      }
-
-      if (projectIdParam) {
-        const projectIdNumber = Number.parseInt(projectIdParam, 10);
-        if (!Number.isNaN(projectIdNumber) && projectIdNumber > 0) {
-          query = query.eq("project_id", projectIdNumber);
-        }
-      }
-
-      if (demandTypeIdParam) {
-        const demandTypeIdNumber = Number.parseInt(demandTypeIdParam, 10);
-        if (!Number.isNaN(demandTypeIdNumber) && demandTypeIdNumber > 0) {
-          query = query.eq("demand_type_id", demandTypeIdNumber);
-        }
-      }
-
       await Promise.all([
         customerIds.length > 0
           ? supabaseAdmin
@@ -681,6 +682,13 @@ export async function GET(req: NextRequest) {
     const to = from + pageSize - 1;
 
     if (summaryMode) {
+      const { data: statusDepartments, error: statusDepartmentsError } = await supabaseAdmin
+        .from("departments")
+        .select("status_config");
+      if (statusDepartmentsError) {
+        console.error("[api/demands] load status config for summary error", statusDepartmentsError);
+      }
+      const statusGroups = buildDemandStatusGroups((statusDepartments || []) as { status_config?: unknown }[]);
       let summaryQuery = applyFilters(
         supabaseAdmin
           .from("demands")
@@ -702,10 +710,13 @@ export async function GET(req: NextRequest) {
       const rows = (data || []) as any[];
       const items = await buildDemandsWithDisplayFields(rows);
 
-      const countForStatus = async (statusValue: string) => {
+      const countForStatuses = async (statusValues: string[]) => {
+        if (statusValues.length === 0) {
+          return 0;
+        }
         const { count: statusCount, error: statusError } = await applyFilters(
-          supabaseAdmin.from("demands").select("id", { head: true, count: "exact" }),
-          { statusOverride: statusValue, skipStatusParam: true },
+          supabaseAdmin.from("demands").select("id", { head: true, count: "exact" }).in("status", statusValues),
+          { skipStatusParam: true },
         );
 
         if (statusError) {
@@ -717,9 +728,9 @@ export async function GET(req: NextRequest) {
       };
 
       const [pendingSummary, inProgressSummary, doneSummary] = await Promise.all([
-        countForStatus("pending"),
-        countForStatus("in_progress"),
-        countForStatus("done"),
+        countForStatuses(statusGroups.pending),
+        countForStatuses(statusGroups.active.filter((value) => !statusGroups.pending.includes(value))),
+        countForStatuses(statusGroups.completed),
       ]);
 
       return NextResponse.json({
