@@ -11,6 +11,7 @@ import {
   Settings, 
   LogOut,
   Briefcase,
+  History,
   X
 } from 'lucide-react';
 
@@ -41,6 +42,7 @@ const Sidebar: React.FC<SidebarProps> = ({ className, isOpen, onClose, canAccess
     { path: '/scoring', label: '评分管理', icon: ClipboardCheck },
     { path: '/statistics', label: '数据统计', icon: BarChart3 },
     { path: '/reports/monthly', label: '月度报告', icon: Briefcase },
+    { path: '/changelog', label: '更新日志', icon: History },
     { path: '/settings', label: '系统设置', icon: Settings },
   ];
 

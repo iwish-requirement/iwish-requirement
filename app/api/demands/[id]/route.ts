@@ -111,6 +111,7 @@ function mapRowToDemand(row: any): Demand {
     description,
     departmentId,
     demandTypeId: typeof row.demand_type_id === "number" ? row.demand_type_id : undefined,
+    fieldTemplateId: typeof row.field_template_id === "number" ? row.field_template_id : null,
     customerId: typeof row.customer_id === "number" ? row.customer_id : undefined,
     projectId: typeof row.project_id === "number" ? row.project_id : undefined,
     creatorId,

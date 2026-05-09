@@ -95,10 +95,17 @@ export function useDemandDetailBootstrap(id: string) {
       }
 
       try {
+        const fieldParams = new URLSearchParams({
+          departmentId: demand.departmentId,
+        });
+        if (demand.fieldTemplateId) {
+          fieldParams.set("templateId", String(demand.fieldTemplateId));
+        } else if (demand.demandTypeId) {
+          fieldParams.set("demandTypeId", String(demand.demandTypeId));
+        }
+
         const [fieldsRes, workflowRes] = await Promise.all([
-          authorizedFetch(
-            `/api/department-fields?departmentId=${encodeURIComponent(demand.departmentId)}`
-          ),
+          authorizedFetch(`/api/department-fields?${fieldParams.toString()}`),
           authorizedFetch(
             `/api/departments/${encodeURIComponent(demand.departmentId)}/workflow-config`
           ),
@@ -137,7 +144,7 @@ export function useDemandDetailBootstrap(id: string) {
     };
 
     loadDemandTemplate();
-  }, [demand?.departmentId]);
+  }, [demand?.departmentId, demand?.demandTypeId, demand?.fieldTemplateId]);
 
   useEffect(() => {
     const loadCurrentUser = async () => {

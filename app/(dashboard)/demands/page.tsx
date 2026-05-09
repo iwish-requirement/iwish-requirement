@@ -1437,12 +1437,11 @@ export default function DemandsPage() {
           </div>
         )}
         <div className="overflow-x-auto">
-          <table className="min-w-[1180px] w-full text-sm text-left">
+          <table className="min-w-[1040px] w-full text-sm text-left">
             <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
               <tr>
                 <th className="px-6 py-5 w-28 whitespace-nowrap">ID</th>
                 <th className="px-6 py-5 whitespace-nowrap">需求标题</th>
-                <th className="px-6 py-5 w-40 text-center whitespace-nowrap">客户/品牌</th>
                 <th className="px-6 py-5 w-32 text-center whitespace-nowrap">类型</th>
                 <th className="px-6 py-5 w-40 text-center whitespace-nowrap">所属部门</th>
                 <th className="px-6 py-5 w-32 text-center whitespace-nowrap">优先级</th>
@@ -1474,31 +1473,6 @@ export default function DemandsPage() {
                         {demand.description}
                       </div>
                       {renderRelationshipBadges(demand)}
-                    </td>
-                    <td className="px-6 py-5 text-center whitespace-nowrap">
-                      {demand.customerName ? (
-                        <div className="inline-flex flex-col items-center gap-1 text-sm font-semibold text-slate-700">
-                          {demand.customerName}
-                          {demand.projectName ? <span className="block text-xs font-normal text-slate-400">{demand.projectName}</span> : null}
-                          <span className="inline-flex px-2 py-0.5 rounded-full bg-slate-50 text-slate-500 border border-slate-100 text-[11px] font-bold">
-                            客户/品牌字段
-                          </span>
-                        </div>
-                      ) : (demand.legacyCustomerName || demand.legacyProjectName) ? (
-                        <div className="inline-flex flex-col items-center gap-1">
-                          <span className="text-sm font-semibold text-slate-700">
-                            {demand.legacyCustomerName || "历史客户未填"}
-                          </span>
-                          {demand.legacyProjectName ? (
-                            <span className="text-xs text-slate-400">{demand.legacyProjectName}</span>
-                          ) : null}
-                          <span className="inline-flex px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-[11px] font-bold">
-                            历史字段
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-slate-400">未关联</span>
-                      )}
                     </td>
                     <td className="px-6 py-5 text-center whitespace-nowrap">
                       <span className="text-sm text-slate-700">{demand.demandTypeName || "-"}</span>
@@ -1884,23 +1858,11 @@ export default function DemandsPage() {
 
               </div>
               <h3 className="text-lg font-bold text-slate-900 mb-2">{demand.title}</h3>
-              {(demand.customerName || demand.legacyCustomerName || demand.legacyProjectName || demand.demandTypeName) && (
+              {demand.demandTypeName && (
                 <div className="mb-2 flex flex-wrap gap-2 text-xs">
-                  {demand.customerName && (
-                    <span className="px-2 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
-                      {demand.customerName}{demand.projectName ? ` / ${demand.projectName}` : ''}
-                    </span>
-                  )}
-                  {!demand.customerName && (demand.legacyCustomerName || demand.legacyProjectName) && (
-                    <span className="px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
-                      {(demand.legacyCustomerName || '历史客户')}{demand.legacyProjectName ? ` / ${demand.legacyProjectName}` : ''} · 历史字段
-                    </span>
-                  )}
-                  {demand.demandTypeName && (
-                    <span className="px-2 py-1 rounded-full bg-slate-50 text-slate-600 border border-slate-200">
-                      {demand.demandTypeName}
-                    </span>
-                  )}
+                  <span className="px-2 py-1 rounded-full bg-slate-50 text-slate-600 border border-slate-200">
+                    {demand.demandTypeName}
+                  </span>
                 </div>
               )}
               <p className="text-sm text-slate-500 mb-4 line-clamp-2">{demand.description}</p>

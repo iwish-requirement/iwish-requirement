@@ -73,6 +73,7 @@ export interface Demand {
   departmentId: string;
   demandTypeId?: number;
   demandTypeName?: string;
+  fieldTemplateId?: number | null;
   customerId?: number;
   customerName?: string;
   projectId?: number;

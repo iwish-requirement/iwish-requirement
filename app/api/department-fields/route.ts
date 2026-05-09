@@ -117,6 +117,89 @@ async function getActiveTemplateId(departmentId: number) {
   return { templateId: template.id as number } as const;
 }
 
+async function resolveTemplateIdForRequest(
+  departmentId: number,
+  templateIdRaw: string | null,
+  demandTypeIdRaw: string | null,
+) {
+  if (templateIdRaw) {
+    const parsed = Number.parseInt(templateIdRaw, 10);
+    if (Number.isNaN(parsed) || parsed <= 0) {
+      return {
+        templateId: null,
+        errorBody: { error: "templateId must be a positive number" },
+        status: 400,
+      } as const;
+    }
+
+    const { data: template, error } = await supabaseAdmin
+      .from("department_field_templates")
+      .select("id")
+      .eq("id", parsed)
+      .eq("department_id", departmentId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("[api/department-fields] template lookup error", error);
+      return {
+        templateId: null,
+        errorBody: { error: "failed to load template", detail: error.message },
+        status: 500,
+      } as const;
+    }
+
+    if (!template) {
+      return {
+        templateId: null,
+        errorBody: { error: "template not found for department" },
+        status: 400,
+      } as const;
+    }
+
+    return { templateId: parsed } as const;
+  }
+
+  if (demandTypeIdRaw) {
+    const parsed = Number.parseInt(demandTypeIdRaw, 10);
+    if (Number.isNaN(parsed) || parsed <= 0) {
+      return {
+        templateId: null,
+        errorBody: { error: "demandTypeId must be a positive number" },
+        status: 400,
+      } as const;
+    }
+
+    const { data: demandType, error } = await supabaseAdmin
+      .from("demand_types")
+      .select("department_id, field_template_id")
+      .eq("id", parsed)
+      .maybeSingle();
+
+    if (error) {
+      console.error("[api/department-fields] demand type template error", error);
+      return {
+        templateId: null,
+        errorBody: { error: "failed to load demand type template", detail: error.message },
+        status: 500,
+      } as const;
+    }
+
+    if (!demandType || demandType.department_id !== departmentId) {
+      return {
+        templateId: null,
+        errorBody: { error: "demand type not found for department" },
+        status: 400,
+      } as const;
+    }
+
+    if (demandType.field_template_id) {
+      return { templateId: demandType.field_template_id as number } as const;
+    }
+  }
+
+  return getActiveTemplateId(departmentId);
+}
+
 
 
 
@@ -159,6 +242,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const departmentIdRaw = searchParams.get("departmentId");
     const departmentKey = searchParams.get("departmentKey");
+    const templateIdRaw = searchParams.get("templateId");
+    const demandTypeIdRaw = searchParams.get("demandTypeId");
 
     let departmentId: number | null = null;
 
@@ -186,7 +271,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const tplResult = await getActiveTemplateId(departmentId);
+    const tplResult = await resolveTemplateIdForRequest(
+      departmentId,
+      templateIdRaw,
+      demandTypeIdRaw,
+    );
     if (!tplResult.templateId && tplResult.templateId !== 0) {
       if ("errorBody" in tplResult) {
         return NextResponse.json(tplResult.errorBody, { status: tplResult.status });
