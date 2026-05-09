@@ -8,6 +8,7 @@ import {
 } from "../../../../lib/departmentDemandRules";
 import { sendWecomAppTextMessage } from "../../../../lib/wecomApp";
 import { buildDemandStatusGroups, type DemandStatusGroups } from "../../../../lib/demandStatusGroups";
+import { loadEffectivePermissionsForUser } from "../../../../lib/serverPermissions";
 
 export const runtime = "edge";
 
@@ -114,6 +115,8 @@ function mapRowToDemand(row: any): Demand {
     projectId: typeof row.project_id === "number" ? row.project_id : undefined,
     creatorId,
     assigneeId,
+    creatorUserId: typeof row.creator_id === "number" ? (row.creator_id as number) : undefined,
+    assigneeUserId: typeof row.assignee_id === "number" ? (row.assignee_id as number) : undefined,
     status: status as DemandStatus,
     priority,
     createdAt,
@@ -708,7 +711,7 @@ export async function DELETE(
 
     const { data: existing, error: loadError } = await supabaseAdmin
       .from("demands")
-      .select("id")
+      .select("id, creator_id")
       .eq("fields->>code", id)
       .maybeSingle();
 
@@ -722,6 +725,18 @@ export async function DELETE(
 
     if (!existing) {
       return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
+
+    const currentUser = authResult.user!;
+    const permissions = await loadEffectivePermissionsForUser(currentUser);
+    const canDeleteByPermission = permissions.includes("demand.delete");
+    const isCreator = typeof existing.creator_id === "number" && existing.creator_id === currentUser.id;
+
+    if (!canDeleteByPermission && !isCreator) {
+      return NextResponse.json(
+        { error: "forbidden", detail: "只有需求创建人或具备删除权限的账号才能删除需求" },
+        { status: 403 }
+      );
     }
 
     const { error: delError } = await supabaseAdmin

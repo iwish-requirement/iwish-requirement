@@ -61,6 +61,7 @@ export default function DemandDetailPage() {
     workflowConfig,
     currentUserRole,
     currentUserPermissions,
+    currentUserId,
     currentUserEmail,
     currentUserDepartmentId,
     mentionUsers,
@@ -239,9 +240,11 @@ export default function DemandDetailPage() {
     ? departments.find(d => d.id === demand.departmentId)?.name || 'Loading...'
     : 'Loading...';
 
-  const canDeleteDemand = currentUserRole
-    ? hasPermission(currentUserRole, 'demand.delete', currentUserPermissions || undefined)
-    : false;
+  const canDeleteDemand =
+    (currentUserRole
+      ? hasPermission(currentUserRole, 'demand.delete', currentUserPermissions || undefined)
+      : false) ||
+    (!!demand && !!currentUserId && demand.creatorUserId === currentUserId);
   const canAssignDemand =
     !!demand &&
     (currentUserRole === 'admin' ||

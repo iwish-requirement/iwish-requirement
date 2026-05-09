@@ -26,6 +26,7 @@ export function useDemandDetailBootstrap(id: string) {
   const [currentUserPermissions, setCurrentUserPermissions] = useState<PermissionKey[] | null>(
     null
   );
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [currentUserDepartmentId, setCurrentUserDepartmentId] = useState<number | null>(null);
   const [mentionUsers, setMentionUsers] = useState<MentionUser[]>([]);
@@ -146,6 +147,10 @@ export function useDemandDetailBootstrap(id: string) {
           return;
         }
 
+        if (typeof user.id === "number") {
+          setCurrentUserId(user.id);
+        }
+
         setCurrentUserEmail(user.email);
 
         if (typeof user.role === "string") {
@@ -204,6 +209,8 @@ export function useDemandDetailBootstrap(id: string) {
     setCurrentUserRole,
     currentUserPermissions,
     setCurrentUserPermissions,
+    currentUserId,
+    setCurrentUserId,
     currentUserEmail,
     setCurrentUserEmail,
     currentUserDepartmentId,
