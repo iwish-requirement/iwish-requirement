@@ -456,9 +456,12 @@ export async function PATCH(
       typeof existing.assignee_id === "number" ? (existing.assignee_id as number) : null;
     let assignedWecomUserId = "";
     let assignedUserId: number | null = null;
+    const isDesignDepartment = ((department as any).slug || "").toString().toLowerCase() === "design";
+    const isSameDepartmentMember = authResult.user?.departmentId === existing.department_id;
     const canAssignDemand =
       authResult.user?.role === "admin" ||
-      (authResult.user?.role === "manager" && authResult.user.departmentId === existing.department_id);
+      (isDesignDepartment && isSameDepartmentMember) ||
+      (authResult.user?.role === "manager" && isSameDepartmentMember);
 
     if (description !== undefined) {
       fields.description = description;
@@ -518,7 +521,7 @@ export async function PATCH(
     if (assigneeEmail) {
       if (!canAssignDemand) {
         return NextResponse.json(
-          { error: "forbidden", detail: "only department managers or admins can assign demands" },
+          { error: "forbidden", detail: "only admins, department managers, or creative department members can assign this demand" },
           { status: 403 }
         );
       }
