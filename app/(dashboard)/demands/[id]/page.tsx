@@ -245,10 +245,17 @@ export default function DemandDetailPage() {
       ? hasPermission(currentUserRole, 'demand.delete', currentUserPermissions || undefined)
       : false) ||
     (!!demand && !!currentUserId && demand.creatorUserId === currentUserId);
+  const demandDepartment = demand
+    ? departments.find((department) => department.id === demand.departmentId)
+    : null;
+  const isDesignDemand = (demandDepartment?.slug || '').toLowerCase() === 'design';
+  const isSameDepartmentMember =
+    !!demand && !!currentUserDepartmentId && currentUserDepartmentId === Number(demand.departmentId);
   const canAssignDemand =
     !!demand &&
     (currentUserRole === 'admin' ||
-      (currentUserRole === 'manager' && currentUserDepartmentId === Number(demand.departmentId)));
+      (isDesignDemand && isSameDepartmentMember) ||
+      (currentUserRole === 'manager' && isSameDepartmentMember));
 
   const normalizedStatusForFlow: DemandStatus | null =
     demand?.status === DemandStatus.DELAYED
