@@ -6,6 +6,7 @@ export type BusinessUser = {
   email: string;
   name: string | null;
   departmentId: number | null;
+  position: string | null;
   status: "pending" | "active" | "disabled";
   role: "admin" | "manager" | "viewer" | "user";
 };
@@ -64,7 +65,7 @@ export async function getBusinessUserFromRequest(req: NextRequest): Promise<{
 
   const { data: row, error: userError } = await supabaseAdmin
     .from("users")
-    .select("id, email, name, department_id, status, role")
+    .select("id, email, name, department_id, position, status, role")
     .eq("email", email)
     .maybeSingle();
 
@@ -91,6 +92,7 @@ export async function getBusinessUserFromRequest(req: NextRequest): Promise<{
     email: row.email as string,
     name: (row.name as string | null) ?? null,
     departmentId: (row.department_id as number | null) ?? null,
+    position: (row.position as string | null) ?? null,
     status: normalizeStatus(row.status as string | null | undefined),
     role: normalizeRole(row.role as string | null | undefined),
   };

@@ -10,6 +10,7 @@ type RawUserRow = {
   email: string;
   name: string | null;
   department_id: number | null;
+  position: string | null;
   status: string | null;
   role: string | null;
   is_active: boolean | null;
@@ -27,6 +28,7 @@ type BusinessUserDto = {
   name: string | null;
   departmentId: number | null;
   departmentName: string | null;
+  position: string | null;
   status: string;
   role: string;
   lastLoginAt: string | null;
@@ -70,6 +72,7 @@ function shapeUser(
     name: row.name,
     departmentId,
     departmentName: department ? department.name : null,
+    position: row.position ?? null,
     status,
     role,
     lastLoginAt: row.last_login_at,
@@ -210,7 +213,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabaseAdmin
       .from("users")
-      .select("id, email, name, department_id, status, role, is_active, last_login_at")
+      .select("id, email, name, department_id, position, status, role, is_active, last_login_at")
       .order("id", { ascending: true });
 
     if (error) {
@@ -292,13 +295,14 @@ export async function POST(req: NextRequest) {
         email,
         name,
         department_id: null,
+        position: null,
         is_active: true,
         status,
         role,
         last_login_at: null,
         updated_at: nowIso,
       })
-      .select("id, email, name, department_id, status, role, is_active, last_login_at")
+      .select("id, email, name, department_id, position, status, role, is_active, last_login_at")
       .maybeSingle();
 
     if (error || !data) {
@@ -342,6 +346,7 @@ export async function PATCH(req: NextRequest) {
     const idRaw = body.id;
     const statusRaw = body.status as string | null | undefined;
     const roleRaw = body.role as string | null | undefined;
+    const positionRaw = body.position as string | null | undefined;
     const departmentIdRaw = body.departmentId as number | string | null | undefined;
 
     const id = Number(idRaw);
@@ -362,6 +367,11 @@ export async function PATCH(req: NextRequest) {
 
     if (roleRaw != null) {
       updateData.role = normalizeRole(roleRaw);
+    }
+
+    if (positionRaw !== undefined) {
+      const position = (positionRaw || "").toString().trim().toLowerCase();
+      updateData.position = position || null;
     }
 
     if (departmentIdRaw !== undefined) {
@@ -386,7 +396,7 @@ export async function PATCH(req: NextRequest) {
       .from("users")
       .update(updateData)
       .eq("id", id)
-      .select("id, email, name, department_id, status, role, is_active, last_login_at")
+      .select("id, email, name, department_id, position, status, role, is_active, last_login_at")
       .maybeSingle();
 
     if (error || !data) {
@@ -441,7 +451,7 @@ export async function DELETE(req: NextRequest) {
     if (mode === "reject_pending") {
       const { data: existing, error: existingError } = await supabaseAdmin
         .from("users")
-        .select("id, auth_user_id, email, name, department_id, status, role, is_active, last_login_at")
+        .select("id, auth_user_id, email, name, department_id, position, status, role, is_active, last_login_at")
         .eq("id", id)
         .maybeSingle();
 
@@ -525,7 +535,7 @@ export async function DELETE(req: NextRequest) {
         updated_at: nowIso,
       })
       .eq("id", id)
-      .select("id, email, name, department_id, status, role, is_active, last_login_at")
+      .select("id, email, name, department_id, position, status, role, is_active, last_login_at")
       .maybeSingle();
 
     if (error || !data) {

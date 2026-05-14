@@ -9,6 +9,11 @@ import { authorizedFetch } from "../../../lib/authFetch";
 import { loadClientBusinessUser } from "../../../lib/clientBusinessUser";
 import Badge from "../../../components/ui/Badge";
 import Modal from "../../../components/ui/Modal";
+import {
+  getCreativeDemandTypeCodes,
+  resolveCreativeDemandRole,
+  type CreativeDemandRole,
+} from "../../../lib/creativeDemandAccess";
 
 const normalizePriorityForRealtime = (raw: any): string => {
   const value = (raw ?? "").toString();
@@ -91,6 +96,9 @@ export default function DemandsPage() {
   const [demands, setDemands] = useState<Demand[]>([]);
   const [currentUserCode, setCurrentUserCode] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
+  const [currentUserDepartmentId, setCurrentUserDepartmentId] = useState<number | null>(null);
+  const [currentUserPosition, setCurrentUserPosition] = useState<string | null>(null);
   const [currentUserPermissions, setCurrentUserPermissions] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
@@ -130,6 +138,27 @@ export default function DemandsPage() {
         results: { rowNumber: number; success: boolean; message?: string }[];
       }
   >(null);
+
+  const creativeDepartment = departments.find((department) => department.slug === "design") || null;
+  const isCurrentUserCreativeMember =
+    !!creativeDepartment &&
+    !!currentUserDepartmentId &&
+    currentUserDepartmentId === Number(creativeDepartment.id);
+  const creativeDemandRole: CreativeDemandRole = isCurrentUserCreativeMember
+    ? resolveCreativeDemandRole({
+        role: currentUserRole,
+        position: currentUserPosition,
+      })
+    : null;
+  const creativeAllowedDemandTypeCodes = getCreativeDemandTypeCodes(creativeDemandRole);
+  const isCreativeRoleRestricted =
+    isCurrentUserCreativeMember && creativeDemandRole !== "all" && creativeAllowedDemandTypeCodes.length > 0;
+  const creativeRoleLabel =
+    creativeDemandRole === "video"
+      ? "视频剪辑需求"
+      : creativeDemandRole === "design"
+        ? "UI / 美工 / Banner 需求"
+        : "";
 
   const resetAllFilters = () => {
     setSelectedDept("all");
@@ -193,6 +222,11 @@ export default function DemandsPage() {
         if (typeof user.id === "number") {
           setCurrentUserId(user.id);
         }
+        setCurrentUserRole(user.role || null);
+        setCurrentUserDepartmentId(
+          typeof user.departmentId === "number" ? user.departmentId : null,
+        );
+        setCurrentUserPosition(user.position || null);
         if (Array.isArray(user.permissions)) {
           setCurrentUserPermissions(user.permissions);
         }
@@ -302,6 +336,17 @@ export default function DemandsPage() {
 
     loadDeptMeta();
   }, [selectedDept]);
+
+  useEffect(() => {
+    if (!creativeDepartment || !isCreativeRoleRestricted) {
+      return;
+    }
+    if (selectedDept !== creativeDepartment.id) {
+      setSelectedDept(creativeDepartment.id);
+      setSelectedDemandTypeId("");
+      setPage(1);
+    }
+  }, [creativeDepartment, isCreativeRoleRestricted, selectedDept]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1096,9 +1141,15 @@ export default function DemandsPage() {
                   className="w-full sm:flex-1 px-4 py-2.5 text-base border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   value={selectedDept}
                   onChange={(e) => {
+                    if (isCreativeRoleRestricted) {
+                      setSelectedDept(creativeDepartment?.id || e.target.value);
+                      setPage(1);
+                      return;
+                    }
                     setSelectedDept(e.target.value);
                     setPage(1);
                   }}
+                  disabled={isCreativeRoleRestricted}
                 >
                   <option value="all">所有部门</option>
                   {departments.map((dept) => (
@@ -1288,14 +1339,25 @@ export default function DemandsPage() {
                   className="w-full sm:w-auto flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
                 >
                   <option value="">{selectedDept === "all" ? "请先选择部门" : "全部类型"}</option>
-                  {demandTypes.map((item) => (
-                    <option key={item.id} value={String(item.id)}>
-                      {item.name}
-                    </option>
-                  ))}
+                  {demandTypes
+                    .filter((item) => {
+                      if (!isCreativeRoleRestricted) return true;
+                      return !!item.code && creativeAllowedDemandTypeCodes.includes(item.code);
+                    })
+                    .map((item) => (
+                      <option key={item.id} value={String(item.id)}>
+                        {item.name}
+                      </option>
+                    ))}
                 </select>
               </div>
             </div>
+
+            {isCreativeRoleRestricted && creativeRoleLabel && (
+              <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                当前为创意部岗位视图，仅展示{creativeRoleLabel}。
+              </div>
+            )}
 
             {/* 高级筛选：按部门自定义字段 */}
             {selectedDept === "all" ? (
@@ -1554,9 +1616,15 @@ export default function DemandsPage() {
                   className="w-full px-4 py-2.5 text-base border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   value={selectedDept}
                   onChange={(e) => {
+                    if (isCreativeRoleRestricted) {
+                      setSelectedDept(creativeDepartment?.id || e.target.value);
+                      setPage(1);
+                      return;
+                    }
                     setSelectedDept(e.target.value);
                     setPage(1);
                   }}
+                  disabled={isCreativeRoleRestricted}
                 >
                   <option value="all">所有部门</option>
                   {departments.map((dept) => (

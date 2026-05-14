@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
 
     const { data: existing, error: existingError } = await supabaseAdmin
       .from("users")
-      .select("id, email, name, department_id, status, role, auth_user_id, last_login_at")
+      .select("id, email, name, department_id, position, status, role, auth_user_id, last_login_at")
       .eq("email", email)
       .maybeSingle();
 
@@ -83,6 +83,7 @@ export async function POST(req: NextRequest) {
       department_id: number | null;
       status: string;
       role: string;
+      position: string | null;
       last_login_at: string | null;
     } | null = null;
 
@@ -118,7 +119,7 @@ export async function POST(req: NextRequest) {
             role: nextRole,
           })
           .eq("id", existing.id)
-          .select("id, email, name, department_id, status, role, last_login_at")
+          .select("id, email, name, department_id, position, status, role, last_login_at")
           .maybeSingle();
 
         if (updateError || !updated) {
@@ -137,6 +138,7 @@ export async function POST(req: NextRequest) {
           email: updated.email as string,
           name: (updated.name as string) || null,
           department_id: (updated.department_id as number | null) ?? null,
+          position: (updated.position as string | null) ?? null,
           status: normalizeStatus(updated.status as string | null | undefined),
           role: normalizeRole(updated.role as string | null | undefined),
           last_login_at: (updated.last_login_at as string | null) ?? null,
@@ -147,6 +149,7 @@ export async function POST(req: NextRequest) {
           email: existing.email as string,
           name: existingName,
           department_id: (existing.department_id as number | null) ?? null,
+          position: (existing.position as string | null) ?? null,
           status: normalizeStatus(existing.status as string | null | undefined),
           role: normalizeRole(existing.role as string | null | undefined),
           last_login_at: existingLastLoginAt,
@@ -165,7 +168,7 @@ export async function POST(req: NextRequest) {
           role: "user",
           last_login_at: nowIso,
         })
-        .select("id, email, name, department_id, status, role, last_login_at")
+        .select("id, email, name, department_id, position, status, role, last_login_at")
         .maybeSingle();
 
       if (insertError || !inserted) {
@@ -184,6 +187,7 @@ export async function POST(req: NextRequest) {
         email: inserted.email as string,
         name: (inserted.name as string) || null,
         department_id: (inserted.department_id as number | null) ?? null,
+        position: (inserted.position as string | null) ?? null,
         status: normalizeStatus(inserted.status as string | null | undefined),
         role: normalizeRole(inserted.role as string | null | undefined),
         last_login_at: (inserted.last_login_at as string | null) ?? null,
@@ -213,6 +217,7 @@ export async function POST(req: NextRequest) {
         email: businessUser.email,
         name: businessUser.name,
         departmentId: businessUser.department_id,
+        position: businessUser.position,
         status: normalizeStatus(businessUser.status),
         role: normalizeRole(businessUser.role),
       };
@@ -228,6 +233,7 @@ export async function POST(req: NextRequest) {
           name: businessUser.name,
           departmentId: businessUser.department_id,
           departmentName,
+          position: businessUser.position,
           status: businessUser.status,
           role: businessUser.role,
           lastLoginAt: businessUser.last_login_at,

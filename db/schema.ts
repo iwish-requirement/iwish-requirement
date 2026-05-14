@@ -18,6 +18,7 @@ export const users = pgTable("users", {
   email: varchar("email", { length: 255 }).notNull(),
   name: varchar("name", { length: 255 }),
   departmentId: integer("department_id"),
+  position: varchar("position", { length: 50 }),
   status: varchar("status", { length: 20 }).notNull().default("pending"),
   role: varchar("role", { length: 32 }).notNull().default("user"),
   wecomUserId: varchar("wecom_user_id", { length: 255 }),
