@@ -138,6 +138,9 @@ export default function DemandsPage() {
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [previewDemand, setPreviewDemand] = useState<Demand | null>(null);
+  const [previewAssigneeEmail, setPreviewAssigneeEmail] = useState("");
+  const [previewAssigning, setPreviewAssigning] = useState(false);
+  const [previewAssignError, setPreviewAssignError] = useState<string | null>(null);
 
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importDepartmentId, setImportDepartmentId] = useState<string>("");
@@ -815,6 +818,16 @@ export default function DemandsPage() {
   const canDeleteAnyDemand = currentUserPermissions.includes("demand.delete");
   const canDeleteDemand = (demand: Demand) =>
     canDeleteAnyDemand || (!!currentUserId && demand.creatorUserId === currentUserId);
+  const canAssignPreviewDemand = (demand: Demand | null) => {
+    if (!demand) return false;
+    if (currentUserRole === "admin") return true;
+    if (!currentUserDepartmentId || Number(demand.departmentId) !== currentUserDepartmentId) {
+      return false;
+    }
+    const department = departments.find((item) => item.id === demand.departmentId);
+    if (department?.slug === "design") return true;
+    return currentUserRole === "manager";
+  };
   const availableRelationshipViews = React.useMemo(() => {
     const views: Array<{ key: "all" | "created" | "assigned"; label: string }> = [];
     if (canViewAllDemands || canViewDepartmentDemands) {
@@ -891,8 +904,47 @@ export default function DemandsPage() {
     }
   };
 
+  const handlePreviewAssignAssignee = async () => {
+    if (!previewDemand || !previewAssigneeEmail.trim() || previewAssigning) return;
+    try {
+      setPreviewAssigning(true);
+      setPreviewAssignError(null);
+      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(previewDemand.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assigneeEmail: previewAssigneeEmail.trim(),
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("assign demand from preview error", text);
+        setPreviewAssignError("分配执行人失败，请稍后重试");
+        return;
+      }
+
+      const json = await res.json();
+      const updatedDemand = json.demand as Demand | undefined;
+      if (!updatedDemand) return;
+
+      setDemands((prev) =>
+        prev.map((demand) => (demand.id === updatedDemand.id ? updatedDemand : demand)),
+      );
+      setPreviewDemand(updatedDemand);
+      setPreviewAssigneeEmail("");
+    } catch (e) {
+      console.error("assign demand from preview error", e);
+      setPreviewAssignError("分配执行人失败，请检查网络后重试");
+    } finally {
+      setPreviewAssigning(false);
+    }
+  };
+
   const openDemandPreview = (demand: Demand) => {
     setPreviewDemand(demand);
+    setPreviewAssigneeEmail("");
+    setPreviewAssignError(null);
   };
 
   const showAdjacentPreviewDemand = (direction: "prev" | "next") => {
@@ -2202,6 +2254,59 @@ export default function DemandsPage() {
                 <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-700">
                   {previewDemand.description || "暂无描述"}
                 </div>
+              </section>
+
+              <section className="mt-5">
+                <div className="mb-2 text-sm font-bold text-slate-900">执行人分配</div>
+                {canAssignPreviewDemand(previewDemand) ? (
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <select
+                        value={previewAssigneeEmail}
+                        onChange={(e) => {
+                          setPreviewAssigneeEmail(e.target.value);
+                          setPreviewAssignError(null);
+                        }}
+                        disabled={previewAssigning || deptUsersLoading}
+                        className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
+                      >
+                        <option value="">
+                          {deptUsersLoading ? "正在加载部门成员..." : "选择执行人"}
+                        </option>
+                        {deptUsers
+                          .filter((user) => user.email && user.email !== previewDemand.assigneeEmail)
+                          .map((user) => {
+                            const displayName = user.name || user.email?.split("@")[0] || user.email;
+                            return (
+                              <option key={user.id} value={user.email || ""}>
+                                {displayName}（{user.email}）
+                              </option>
+                            );
+                          })}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handlePreviewAssignAssignee}
+                        disabled={!previewAssigneeEmail || previewAssigning || deptUsersLoading}
+                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {previewAssigning ? "分配中..." : "分配"}
+                      </button>
+                    </div>
+                    {previewAssignError && (
+                      <div className="mt-2 text-xs text-rose-600">{previewAssignError}</div>
+                    )}
+                    {deptUsers.length === 0 && !deptUsersLoading && (
+                      <div className="mt-2 text-xs text-slate-400">
+                        当前部门暂无可分配成员，请先确认用户已加入该部门。
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-400">
+                    当前账号不能在此处直接分配该需求。
+                  </div>
+                )}
               </section>
 
               <section className="mt-5">
