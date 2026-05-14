@@ -129,6 +129,7 @@ export default function DemandsPage() {
   const [assigneeUserId, setAssigneeUserId] = useState("");
 
   const [dynamicFilterFields, setDynamicFilterFields] = useState<FieldDefinition[]>([]);
+  const [previewFieldLabels, setPreviewFieldLabels] = useState<Record<string, string>>({});
   const [dynamicFilters, setDynamicFilters] = useState<Record<string, string>>({});
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [workflowConfig, setWorkflowConfig] = useState<DepartmentWorkflowConfig | null>(null);
@@ -321,6 +322,14 @@ export default function DemandsPage() {
         if (fieldsRes.ok) {
           const json = await fieldsRes.json();
           const items = (json.items || []) as FieldDefinition[];
+          setPreviewFieldLabels((prev) => {
+            const next = { ...prev };
+            for (const field of items) {
+              next[`${selectedDept}:${field.id}`] = field.label;
+              next[field.id] = field.label;
+            }
+            return next;
+          });
           setDynamicFilterFields(items.filter((f) => f.filterable));
         } else {
           console.error("load department fields for filters error", await fieldsRes.text());
@@ -947,6 +956,41 @@ export default function DemandsPage() {
     setPreviewAssignError(null);
   };
 
+  useEffect(() => {
+    if (!previewDemand) return;
+    const departmentId = previewDemand.departmentId;
+    const cacheKey = `${departmentId}:${previewDemand.demandTypeId || "active"}:__loaded`;
+    if (previewFieldLabels[cacheKey]) return;
+
+    const loadPreviewFieldLabels = async () => {
+      try {
+        const params = new URLSearchParams({ departmentId });
+        if (previewDemand.demandTypeId) {
+          params.set("demandTypeId", String(previewDemand.demandTypeId));
+        }
+        const res = await authorizedFetch(`/api/department-fields?${params.toString()}`);
+        if (!res.ok) {
+          console.error("load preview field labels error", await res.text());
+          return;
+        }
+        const json = await res.json();
+        const items = (json.items || []) as FieldDefinition[];
+        setPreviewFieldLabels((prev) => {
+          const next = { ...prev, [cacheKey]: "1" };
+          for (const field of items) {
+            next[`${departmentId}:${field.id}`] = field.label;
+            next[field.id] = field.label;
+          }
+          return next;
+        });
+      } catch (e) {
+        console.error("load preview field labels error", e);
+      }
+    };
+
+    loadPreviewFieldLabels();
+  }, [previewDemand, previewFieldLabels]);
+
   const showAdjacentPreviewDemand = (direction: "prev" | "next") => {
     if (selectedPreviewIndex < 0) return;
     const nextIndex = direction === "prev" ? selectedPreviewIndex - 1 : selectedPreviewIndex + 1;
@@ -954,7 +998,10 @@ export default function DemandsPage() {
     setPreviewDemand(demands[nextIndex]);
   };
 
-  const getFieldLabel = (key: string) => {
+  const getFieldLabel = (key: string, demand?: Demand | null) => {
+    const departmentLabel = demand?.departmentId ? previewFieldLabels[`${demand.departmentId}:${key}`] : "";
+    if (departmentLabel) return departmentLabel;
+    if (previewFieldLabels[key]) return previewFieldLabels[key];
     const field = dynamicFilterFields.find((item) => item.id === key || item.label === key);
     return field?.label || key;
   };
@@ -993,10 +1040,22 @@ export default function DemandsPage() {
 
   const getPreviewFields = (demand: Demand | null) => {
     if (!demand?.customFields) return [];
+    const hiddenKeys = new Set([
+      "assigneeEmail",
+      "assigneeCode",
+      "creatorEmail",
+      "creatorCode",
+      "departmentKey",
+      "priority",
+      "dueDate",
+      "description",
+      "code",
+    ]);
     return Object.entries(demand.customFields)
+      .filter(([key]) => !hiddenKeys.has(key))
       .map(([key, value]) => ({
         key,
-        label: getFieldLabel(key),
+        label: getFieldLabel(key, demand),
         value: normalizePreviewValue(value),
       }))
       .filter((item) => item.value.length > 0 && !["customerName", "projectName"].includes(item.key));
