@@ -46,6 +46,21 @@ export const userRoles = pgTable("user_roles", {
   roleId: integer("role_id").notNull(),
 });
 
+// User Positions (可配置岗位视图)
+export const userPositions = pgTable("user_positions", {
+  id: serial("id").primaryKey(),
+  departmentId: integer("department_id"),
+  code: varchar("code", { length: 50 }).notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  demandTypeCodes: jsonb("demand_type_codes").notNull().default('[]'),
+  accessScope: varchar("access_scope", { length: 20 }).notNull().default("demand_types"),
+  isActive: boolean("is_active").notNull().default(true),
+  orderIndex: integer("order_index"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at"),
+});
+
 // Department Field Templates (版本化字段模板)
 export const departmentFieldTemplates = pgTable("department_field_templates", {
   id: serial("id").primaryKey(),
