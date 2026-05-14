@@ -7,9 +7,12 @@ import {
   Filter,
   LineChart,
   MessageSquareText,
+  MousePointerClick,
+  PanelRightOpen,
   ShieldCheck,
   Sparkles,
   Trash2,
+  UserCog,
 } from "lucide-react";
 
 interface ReleaseItem {
@@ -28,6 +31,43 @@ interface ReleaseNote {
 }
 
 const releases: ReleaseNote[] = [
+  {
+    date: "2026-05-14",
+    title: "需求列表接单面板与岗位配置优化",
+    summary:
+      "这次更新把需求列表升级为更适合执行人接收任务的工作入口。点击需求会先打开右侧接单面板，快速看到核心内容、重要字段、素材线索和处理动作，同时岗位视图改为后台可配置。",
+    audience: ["创意部", "技术部", "执行人", "管理员"],
+    items: [
+      {
+        title: "点击需求先打开接单面板",
+        description:
+          "需求列表不再默认直接跳详情页，而是先展示右侧面板，保留当前筛选和列表位置。",
+        impact: "执行人可以连续查看多条需求，不用反复进入详情再返回列表。",
+        icon: PanelRightOpen,
+      },
+      {
+        title: "核心内容和重要字段前置",
+        description:
+          "面板优先展示需求描述、文案、尺寸、设计版式、素材数量、参考图、原素材、品牌/客户和链接等关键信息。",
+        impact: "减少执行人理解需求的路径，快速判断材料是否齐全、能不能开始处理。",
+        icon: MousePointerClick,
+      },
+      {
+        title: "处理动作更靠近工作现场",
+        description:
+          "面板内提供进入详情、复制需求、删除需求、上一条/下一条，并前置“整理为 PSD”入口。",
+        impact: "高频动作不用再进入完整详情页查找，创意部处理需求的节奏更顺。",
+        icon: ClipboardList,
+      },
+      {
+        title: "岗位视图支持后台配置",
+        description:
+          "管理员可以在用户管理中按部门维护岗位名称、编码和可见需求类型，并按部门筛选用户后批量维护岗位。",
+        impact: "创意部可灵活区分设计、视频剪辑等岗位，后续其他部门也能复用同一套配置方式。",
+        icon: UserCog,
+      },
+    ],
+  },
   {
     date: "2026-05-09",
     title: "权限与统计口径体验修复",
