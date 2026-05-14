@@ -8,6 +8,7 @@ export interface ClientBusinessUser {
   email?: string | null;
   name?: string | null;
   role?: string | null;
+  position?: string | null;
   status?: string | null;
   departmentId?: number | null;
   departmentName?: string | null;

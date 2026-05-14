@@ -11,6 +11,10 @@ import {
   resolveAssignedStatusValue,
   resolveDepartmentDemandRules,
 } from "../../../lib/departmentDemandRules";
+import {
+  getCreativeDemandTypeCodes,
+  resolveCreativeDemandRole,
+} from "../../../lib/creativeDemandAccess";
 
 export const runtime = "edge";
 
@@ -293,6 +297,40 @@ export async function GET(req: NextRequest) {
     const dueFrom = url.searchParams.get("dueFrom");
     const dueTo = url.searchParams.get("dueTo");
     const scopeParam = url.searchParams.get("scope");
+    const creativeDeptResult = await supabaseAdmin
+      .from("departments")
+      .select("id")
+      .eq("slug", "design")
+      .maybeSingle();
+    const creativeDepartmentId =
+      creativeDeptResult.data && typeof creativeDeptResult.data.id === "number"
+        ? (creativeDeptResult.data.id as number)
+        : null;
+    const isCreativeMember =
+      !!creativeDepartmentId && currentUser.departmentId === creativeDepartmentId;
+    const creativeDemandRole = isCreativeMember ? resolveCreativeDemandRole(currentUser) : null;
+    let creativeAllowedDemandTypeIds: number[] | null = null;
+
+    if (creativeDepartmentId && creativeDemandRole && creativeDemandRole !== "all") {
+      const allowedCodes = getCreativeDemandTypeCodes(creativeDemandRole);
+      const { data: creativeTypes, error: creativeTypesError } = await supabaseAdmin
+        .from("demand_types")
+        .select("id")
+        .eq("department_id", creativeDepartmentId)
+        .in("code", allowedCodes);
+
+      if (creativeTypesError) {
+        console.error("[api/demands] load creative demand type access error", creativeTypesError);
+        return NextResponse.json(
+          { error: "failed to load creative demand access", detail: creativeTypesError.message },
+          { status: 500 },
+        );
+      }
+
+      creativeAllowedDemandTypeIds = ((creativeTypes || []) as { id: number }[])
+        .map((row) => row.id)
+        .filter((id) => typeof id === "number" && Number.isFinite(id));
+    }
 
     const customFieldFilters: { key: string; value: string }[] = [];
     for (const [key, value] of url.searchParams.entries()) {
@@ -353,6 +391,15 @@ export async function GET(req: NextRequest) {
           query = query.eq("department_id", asNumber);
         } else {
           query = query.eq("fields->>departmentKey", departmentIdParam);
+        }
+      }
+
+      if (creativeDepartmentId && creativeAllowedDemandTypeIds) {
+        query = query.eq("department_id", creativeDepartmentId);
+        if (creativeAllowedDemandTypeIds.length > 0) {
+          query = query.in("demand_type_id", creativeAllowedDemandTypeIds);
+        } else {
+          query = query.eq("id", -1);
         }
       }
 

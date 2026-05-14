@@ -20,6 +20,7 @@ interface AdminUser {
   name: string | null;
   departmentId: number | null;
   departmentName: string | null;
+  position: string | null;
   status: string;
   role: string;
   lastLoginAt: string | null;
@@ -40,12 +41,25 @@ interface RoleOption {
 
 type UserTab = "active" | "pending" | "disabled";
 
+const POSITION_OPTIONS = [
+  { value: "", label: "未设置", hint: "不启用岗位分流" },
+  { value: "design", label: "设计 / UI / 美工 / Banner", hint: "仅查看 UI、美工、Banner 类需求" },
+  { value: "video", label: "视频剪辑", hint: "仅查看视频剪辑类需求" },
+  { value: "all", label: "全部创意需求", hint: "查看创意部全部需求" },
+];
+
 function getRoleLabel(role: string): string {
   const value = (role || "").toLowerCase();
   if (value === "admin") return "管理员";
   if (value === "manager") return "部门管理员";
   if (value === "viewer") return "只读用户";
   return "普通用户";
+}
+
+function getPositionLabel(position: string | null | undefined): string {
+  const value = (position || "").toLowerCase();
+  const option = POSITION_OPTIONS.find((item) => item.value === value);
+  return option ? option.label : "未设置";
 }
 
 function getDbRoleNames(user: AdminUser | null | undefined): string[] {
@@ -96,6 +110,7 @@ export default function UserManagementSettings() {
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [editDepartmentId, setEditDepartmentId] = useState<string>("");
   const [editRole, setEditRole] = useState<string>("user");
+  const [editPosition, setEditPosition] = useState<string>("");
   const [editRoleIds, setEditRoleIds] = useState<number[]>([]);
   const [loadingUserRoles, setLoadingUserRoles] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -400,6 +415,7 @@ export default function UserManagementSettings() {
     setEditingUser(user);
     setEditDepartmentId(user.departmentId != null ? String(user.departmentId) : "");
     setEditRole(normalizeRoleForSelect(user.role));
+    setEditPosition((user.position || "").toLowerCase());
     setEditRoleIds([]);
     setIsEditModalOpen(true);
     void loadUserRoles(user.id);
@@ -414,6 +430,7 @@ export default function UserManagementSettings() {
       const payload: Record<string, any> = {
         id: editingUser.id,
         role: editRole,
+        position: editPosition,
       };
       if (editDepartmentId === "") {
         payload.departmentId = null;
@@ -1052,6 +1069,26 @@ export default function UserManagementSettings() {
                 <option value="viewer">只读用户</option>
               </select>
             </div>
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1">
+              岗位视图
+            </label>
+            <select
+              value={editPosition}
+              onChange={(e) => setEditPosition(e.target.value)}
+              disabled={savingEdit}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+            >
+              {POSITION_OPTIONS.map((option) => (
+                <option key={option.value || "empty"} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] text-slate-400">
+              用于创意部需求列表分流：设计岗位看 UI / 美工 / Banner，视频剪辑岗位看视频剪辑。管理员、部门负责人和“全部创意需求”可查看全部。
+            </p>
           </div>
           <div>
             <label className="block text-sm font-bold text-slate-700 mb-1">
