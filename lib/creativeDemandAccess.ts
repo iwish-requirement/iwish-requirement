@@ -3,6 +3,12 @@ const VIDEO_DEMAND_TYPE_CODES = ["video_editing"];
 
 export type CreativeDemandRole = "design" | "video" | "all" | null;
 
+export type PositionAccessConfig = {
+  code: string;
+  accessScope: "all" | "demand_types";
+  demandTypeCodes: string[];
+};
+
 export function resolveCreativeDemandRole(user: {
   position?: string | null;
   role?: string | null;
@@ -31,6 +37,36 @@ export function getCreativeDemandTypeCodes(role: CreativeDemandRole): string[] {
   if (role === "video") return VIDEO_DEMAND_TYPE_CODES;
   if (role === "all") return [...DESIGN_DEMAND_TYPE_CODES, ...VIDEO_DEMAND_TYPE_CODES];
   return [];
+}
+
+export function resolvePositionAccessFromRows(
+  position: string | null | undefined,
+  rows: any[] | null | undefined,
+): PositionAccessConfig | null {
+  const code = (position || "").toString().trim().toLowerCase();
+  if (!code) return null;
+
+  const row = (rows || []).find((item) => {
+    const itemCode = (item?.code || "").toString().trim().toLowerCase();
+    return itemCode === code;
+  });
+  if (!row) return null;
+
+  const accessScope = row.access_scope === "all" || row.accessScope === "all" ? "all" : "demand_types";
+  const rawCodes = Array.isArray(row.demand_type_codes)
+    ? row.demand_type_codes
+    : Array.isArray(row.demandTypeCodes)
+      ? row.demandTypeCodes
+      : [];
+  const demandTypeCodes = rawCodes
+    .map((item: any) => (item || "").toString().trim())
+    .filter((item: string) => item.length > 0);
+
+  return {
+    code,
+    accessScope,
+    demandTypeCodes,
+  };
 }
 
 export function isDemandTypeAllowedForCreativeRole(

@@ -39,9 +39,21 @@ interface RoleOption {
   description: string | null;
 }
 
+interface UserPositionOption {
+  id: number;
+  departmentId: number | null;
+  code: string;
+  name: string;
+  description: string | null;
+  demandTypeCodes: string[];
+  accessScope: "all" | "demand_types";
+  isActive: boolean;
+  orderIndex: number | null;
+}
+
 type UserTab = "active" | "pending" | "disabled";
 
-const POSITION_OPTIONS = [
+const DEFAULT_POSITION_OPTIONS = [
   { value: "", label: "未设置", hint: "不启用岗位分流" },
   { value: "design", label: "设计 / UI / 美工 / Banner", hint: "仅查看 UI、美工、Banner 类需求" },
   { value: "video", label: "视频剪辑", hint: "仅查看视频剪辑类需求" },
@@ -56,10 +68,16 @@ function getRoleLabel(role: string): string {
   return "普通用户";
 }
 
-function getPositionLabel(position: string | null | undefined): string {
+function getPositionLabel(
+  position: string | null | undefined,
+  options?: UserPositionOption[],
+): string {
   const value = (position || "").toLowerCase();
-  const option = POSITION_OPTIONS.find((item) => item.value === value);
-  return option ? option.label : "未设置";
+  const configured = (options || []).find((item) => item.code.toLowerCase() === value);
+  if (configured) return configured.name;
+  const option = DEFAULT_POSITION_OPTIONS.find((item) => item.value === value);
+  if (option) return option.label;
+  return value || "未设置";
 }
 
 function getDbRoleNames(user: AdminUser | null | undefined): string[] {
@@ -87,6 +105,15 @@ function normalizeRoleForSelect(role: string): string {
   return "user";
 }
 
+function normalizePositionCodeInput(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 50);
+}
+
 export default function UserManagementSettings() {
   const [activeTab, setActiveTab] = useState<UserTab>("active");
   const [activeUsers, setActiveUsers] = useState<AdminUser[]>([]);
@@ -94,10 +121,20 @@ export default function UserManagementSettings() {
   const [disabledUsers, setDisabledUsers] = useState<AdminUser[]>([]);
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [roleOptions, setRoleOptions] = useState<RoleOption[]>([]);
+  const [positionOptions, setPositionOptions] = useState<UserPositionOption[]>([]);
+  const [departmentFilter, setDepartmentFilter] = useState<string>("all");
 
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [savingUserId, setSavingUserId] = useState<number | null>(null);
+  const [loadingPositions, setLoadingPositions] = useState(false);
+  const [savingPosition, setSavingPosition] = useState(false);
+  const [positionDepartmentId, setPositionDepartmentId] = useState<string>("");
+  const [newPositionName, setNewPositionName] = useState("");
+  const [newPositionCode, setNewPositionCode] = useState("");
+  const [newPositionAccessScope, setNewPositionAccessScope] = useState<"all" | "demand_types">("demand_types");
+  const [newPositionDemandTypeCodes, setNewPositionDemandTypeCodes] = useState("");
+  const [editingPositionId, setEditingPositionId] = useState<number | null>(null);
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [savingNewUser, setSavingNewUser] = useState(false);
@@ -171,6 +208,36 @@ export default function UserManagementSettings() {
     }
   };
 
+  const loadPositions = async () => {
+    try {
+      setLoadingPositions(true);
+      const res = await authorizedFetch("/api/admin/positions?includeInactive=1");
+      if (!res.ok) {
+        console.error("load user positions error", await res.text());
+        return;
+      }
+      const json = await res.json();
+      const items = Array.isArray(json.items) ? json.items : [];
+      setPositionOptions(
+        items.map((item: any) => ({
+          id: Number(item.id),
+          departmentId: item.departmentId == null ? null : Number(item.departmentId),
+          code: (item.code || "").toString(),
+          name: (item.name || "").toString(),
+          description: item.description == null ? null : String(item.description),
+          demandTypeCodes: Array.isArray(item.demandTypeCodes) ? item.demandTypeCodes : [],
+          accessScope: item.accessScope === "all" ? "all" : "demand_types",
+          isActive: item.isActive !== false,
+          orderIndex: item.orderIndex == null ? null : Number(item.orderIndex),
+        })),
+      );
+    } catch (e) {
+      console.error("load user positions error", e);
+    } finally {
+      setLoadingPositions(false);
+    }
+  };
+
   const loadUserRoles = async (userId: number) => {
     try {
       setLoadingUserRoles(true);
@@ -217,6 +284,7 @@ export default function UserManagementSettings() {
   useEffect(() => {
     loadUsers();
     loadDepartments();
+    loadPositions();
   }, []);
 
 
@@ -482,10 +550,142 @@ export default function UserManagementSettings() {
     }
   };
 
+  const resetPositionForm = () => {
+    setEditingPositionId(null);
+    setNewPositionName("");
+    setNewPositionCode("");
+    setNewPositionAccessScope("demand_types");
+    setNewPositionDemandTypeCodes("");
+  };
 
+  const startEditPosition = (position: UserPositionOption) => {
+    setEditingPositionId(position.id);
+    setPositionDepartmentId(position.departmentId != null ? String(position.departmentId) : "");
+    setNewPositionName(position.name);
+    setNewPositionCode(position.code);
+    setNewPositionAccessScope(position.accessScope);
+    setNewPositionDemandTypeCodes(position.demandTypeCodes.join(", "));
+  };
+
+  const handleSavePosition = async () => {
+    const effectivePositionDepartmentId =
+      positionDepartmentId || (departmentFilter !== "all" && departmentFilter !== "none" ? departmentFilter : "");
+    const departmentId = Number(effectivePositionDepartmentId);
+    const name = newPositionName.trim();
+    const code = normalizePositionCodeInput(newPositionCode || name);
+    if (!departmentId || Number.isNaN(departmentId)) {
+      setError("请先选择岗位所属部门");
+      return;
+    }
+    if (!name) {
+      setError("请填写岗位名称");
+      return;
+    }
+    if (!code) {
+      setError("请填写岗位编码，建议使用英文或拼音");
+      return;
+    }
+
+    try {
+      setSavingPosition(true);
+      setError(null);
+      const res = await authorizedFetch("/api/admin/positions", {
+        method: editingPositionId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingPositionId || undefined,
+          departmentId,
+          name,
+          code,
+          accessScope: newPositionAccessScope,
+          demandTypeCodes: newPositionDemandTypeCodes,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("create user position error", text);
+        setError("创建岗位失败，请检查岗位编码是否重复");
+        return;
+      }
+
+      resetPositionForm();
+      await loadPositions();
+    } catch (e) {
+      console.error("create user position error", e);
+      setError("创建岗位失败，请检查网络后重试");
+    } finally {
+      setSavingPosition(false);
+    }
+  };
+
+  const handleTogglePosition = async (position: UserPositionOption) => {
+    try {
+      setSavingPosition(true);
+      setError(null);
+      const res = await authorizedFetch("/api/admin/positions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: position.id,
+          isActive: !position.isActive,
+        }),
+      });
+      if (!res.ok) {
+        console.error("toggle user position error", await res.text());
+        setError("更新岗位状态失败，请稍后重试");
+        return;
+      }
+      await loadPositions();
+    } catch (e) {
+      console.error("toggle user position error", e);
+      setError("更新岗位状态失败，请检查网络后重试");
+    } finally {
+      setSavingPosition(false);
+    }
+  };
+
+
+  const filteredActiveUsers = activeUsers.filter((user) => {
+    if (departmentFilter === "all") return true;
+    if (departmentFilter === "none") return user.departmentId == null;
+    return String(user.departmentId || "") === departmentFilter;
+  });
+  const filteredPendingUsers = pendingUsers.filter((user) => {
+    if (departmentFilter === "all") return true;
+    if (departmentFilter === "none") return user.departmentId == null;
+    return String(user.departmentId || "") === departmentFilter;
+  });
+  const filteredDisabledUsers = disabledUsers.filter((user) => {
+    if (departmentFilter === "all") return true;
+    if (departmentFilter === "none") return user.departmentId == null;
+    return String(user.departmentId || "") === departmentFilter;
+  });
   const totalActive = activeUsers.length;
   const totalPending = pendingUsers.length;
   const totalDisabled = disabledUsers.length;
+  const currentTabUsers =
+    activeTab === "active"
+      ? filteredActiveUsers
+      : activeTab === "pending"
+        ? filteredPendingUsers
+        : filteredDisabledUsers;
+  const positionDepartmentFilter =
+    positionDepartmentId || (departmentFilter !== "all" && departmentFilter !== "none" ? departmentFilter : "");
+  const visiblePositionOptions = positionOptions.filter((position) => {
+    if (positionDepartmentFilter) {
+      return String(position.departmentId || "") === positionDepartmentFilter;
+    }
+    return true;
+  });
+  const editPositionDepartmentId = editDepartmentId ? Number(editDepartmentId) : editingUser?.departmentId || null;
+  const editPositionOptions = positionOptions
+    .filter((position) => position.isActive)
+    .filter((position) => {
+      if (!editPositionDepartmentId) return true;
+      return position.departmentId == null || position.departmentId === editPositionDepartmentId;
+    });
+  const selectedEditPositionExists =
+    !editPosition || editPositionOptions.some((position) => position.code === editPosition);
 
   return (
     <div className="animate-fadeIn">
@@ -548,21 +748,159 @@ export default function UserManagementSettings() {
         </div>
       )}
 
+      <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3 md:p-4">
+        <div className="flex flex-col md:flex-row md:items-end gap-3">
+          <div className="flex-1 min-w-[180px]">
+            <label className="block text-xs font-bold text-slate-600 mb-1">按部门筛选用户</label>
+            <select
+              value={departmentFilter}
+              onChange={(e) => setDepartmentFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="all">全部部门</option>
+              <option value="none">未分配部门</option>
+              {departments.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="text-xs text-slate-500">
+            当前筛选结果：{currentTabUsers.length} 人
+          </div>
+        </div>
+      </div>
+
+      <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3 md:p-4">
+        <div className="flex flex-col lg:flex-row lg:items-end gap-3">
+          <div className="flex-1 min-w-[160px]">
+            <label className="block text-xs font-bold text-slate-600 mb-1">岗位所属部门</label>
+            <select
+              value={positionDepartmentId}
+              onChange={(e) => setPositionDepartmentId(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="">跟随上方部门筛选</option>
+              {departments.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex-1 min-w-[150px]">
+            <label className="block text-xs font-bold text-slate-600 mb-1">岗位名称</label>
+            <input
+              value={newPositionName}
+              onChange={(e) => setNewPositionName(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              placeholder="例如：设计师"
+            />
+          </div>
+          <div className="flex-1 min-w-[140px]">
+            <label className="block text-xs font-bold text-slate-600 mb-1">岗位编码</label>
+            <input
+              value={newPositionCode}
+              onChange={(e) => setNewPositionCode(normalizePositionCodeInput(e.target.value))}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              placeholder="designer"
+            />
+          </div>
+          <div className="flex-1 min-w-[160px]">
+            <label className="block text-xs font-bold text-slate-600 mb-1">可见范围</label>
+            <select
+              value={newPositionAccessScope}
+              onChange={(e) => setNewPositionAccessScope(e.target.value === "all" ? "all" : "demand_types")}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="demand_types">按需求类型编码</option>
+              <option value="all">全部需求类型</option>
+            </select>
+          </div>
+          <div className="flex-[1.4] min-w-[180px]">
+            <label className="block text-xs font-bold text-slate-600 mb-1">需求类型编码</label>
+            <input
+              value={newPositionDemandTypeCodes}
+              onChange={(e) => setNewPositionDemandTypeCodes(e.target.value)}
+              disabled={newPositionAccessScope === "all"}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:text-slate-400"
+              placeholder="ui_design, graphic"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleSavePosition}
+            disabled={savingPosition}
+            className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-bold hover:bg-slate-800 disabled:opacity-60"
+          >
+            {editingPositionId ? "保存岗位" : "新增岗位"}
+          </button>
+          {editingPositionId && (
+            <button
+              type="button"
+              onClick={resetPositionForm}
+              disabled={savingPosition}
+              className="px-4 py-2 bg-white text-slate-600 border border-slate-200 rounded-lg text-sm font-bold hover:bg-slate-50 disabled:opacity-60"
+            >
+              取消编辑
+            </button>
+          )}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {loadingPositions ? (
+            <span className="text-xs text-slate-400">正在加载岗位...</span>
+          ) : visiblePositionOptions.length === 0 ? (
+            <span className="text-xs text-slate-400">当前部门暂无岗位配置</span>
+          ) : (
+            visiblePositionOptions.map((position) => (
+              <div key={position.id} className="inline-flex rounded-full overflow-hidden border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => startEditPosition(position)}
+                  disabled={savingPosition}
+                  className={`px-2.5 py-1 text-xs font-bold ${
+                    position.isActive
+                      ? "bg-blue-50 text-blue-700"
+                      : "bg-slate-50 text-slate-400"
+                  }`}
+                  title={
+                    position.accessScope === "all"
+                      ? "可查看全部需求类型"
+                      : `可查看：${position.demandTypeCodes.join(", ") || "未配置"}`
+                  }
+                >
+                  {position.name}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleTogglePosition(position)}
+                  disabled={savingPosition}
+                  className="px-2 py-1 text-xs font-bold bg-white text-slate-500 border-l border-slate-200 hover:bg-slate-50"
+                >
+                  {position.isActive ? "停用" : "启用"}
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         {loading ? (
           <div className="p-6 text-center text-slate-400 text-sm">
             正在加载用户列表...
           </div>
         ) : activeTab === "active" ? (
-          totalActive === 0 ? (
+          filteredActiveUsers.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-sm">
-              暂无已激活用户
+              当前筛选下暂无已激活用户
             </div>
           ) : (
             <>
               {/* 移动端：卡片列表 */}
               <div className="space-y-3 md:hidden">
-                {activeUsers.map((user) => {
+                {filteredActiveUsers.map((user) => {
                   const isSaving = savingUserId === user.id;
                   const roleLabel = getRoleLabel(user.role);
                   const dbRoleNames = getDbRoleNames(user);
@@ -608,6 +946,9 @@ export default function UserManagementSettings() {
                         <span>
                           部门：{user.departmentName || "未分配部门"}
                         </span>
+                        <span>
+                          岗位：{getPositionLabel(user.position, positionOptions)}
+                        </span>
                       </div>
                       <div className="pt-2 flex justify-end gap-2">
                         <button
@@ -640,12 +981,13 @@ export default function UserManagementSettings() {
                       <th className="px-4 md:px-6 py-3 font-bold">姓名</th>
                       <th className="px-4 md:px-6 py-3 font-bold">邮箱</th>
                       <th className="px-4 md:px-6 py-3 font-bold">部门</th>
+                      <th className="px-4 md:px-6 py-3 font-bold">岗位</th>
                       <th className="px-4 md:px-6 py-3 font-bold">角色</th>
                       <th className="px-4 md:px-6 py-3 font-bold text-right">操作</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {activeUsers.map((user) => {
+                    {filteredActiveUsers.map((user) => {
                       const isSaving = savingUserId === user.id;
                       const roleLabel = getRoleLabel(user.role);
                       const dbRoleNames = getDbRoleNames(user);
@@ -664,6 +1006,9 @@ export default function UserManagementSettings() {
                           </td>
                           <td className="px-4 md:px-6 py-3 text-slate-500 text-xs md:text-sm">
                             {user.departmentName || "未分配部门"}
+                          </td>
+                          <td className="px-4 md:px-6 py-3 text-slate-500 text-xs md:text-sm">
+                            {getPositionLabel(user.position, positionOptions)}
                           </td>
                           <td className="px-4 md:px-6 py-3 text-xs md:text-sm">
                             {dbRoleNames.length > 0 ? (
@@ -711,11 +1056,11 @@ export default function UserManagementSettings() {
             </>
           )
         ) : activeTab === "pending" ? (
-          totalPending === 0 ? (
-            <div className="p-8 text-center text-slate-400 text-sm">暂无待审核申请</div>
+          filteredPendingUsers.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-sm">当前筛选下暂无待审核申请</div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {pendingUsers.map((user) => {
+              {filteredPendingUsers.map((user) => {
                 const isSaving = savingUserId === user.id;
                 return (
                   <div
@@ -766,13 +1111,13 @@ export default function UserManagementSettings() {
               })}
             </div>
           )
-        ) : totalDisabled === 0 ? (
-          <div className="p-8 text-center text-slate-400 text-sm">暂无已禁用用户</div>
+        ) : filteredDisabledUsers.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 text-sm">当前筛选下暂无已禁用用户</div>
         ) : (
           <>
             {/* 移动端：卡片列表 */}
             <div className="space-y-3 md:hidden">
-              {disabledUsers.map((user) => {
+              {filteredDisabledUsers.map((user) => {
                 const isSaving = savingUserId === user.id;
                 const roleLabel = getRoleLabel(user.role);
                 const dbRoleNames = getDbRoleNames(user);
@@ -817,6 +1162,9 @@ export default function UserManagementSettings() {
                       <span>
                         部门：{user.departmentName || "未分配部门"}
                       </span>
+                      <span>
+                        岗位：{getPositionLabel(user.position, positionOptions)}
+                      </span>
                     </div>
                     <div className="pt-2 flex justify-end gap-2">
                       <button
@@ -849,12 +1197,13 @@ export default function UserManagementSettings() {
                     <th className="px-4 md:px-6 py-3 font-bold">姓名</th>
                     <th className="px-4 md:px-6 py-3 font-bold">邮箱</th>
                     <th className="px-4 md:px-6 py-3 font-bold">部门</th>
+                    <th className="px-4 md:px-6 py-3 font-bold">岗位</th>
                     <th className="px-4 md:px-6 py-3 font-bold">角色</th>
                     <th className="px-4 md:px-6 py-3 font-bold text-right">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {disabledUsers.map((user) => {
+                  {filteredDisabledUsers.map((user) => {
                 const isSaving = savingUserId === user.id;
                 const roleLabel = getRoleLabel(user.role);
                 const dbRoleNames = getDbRoleNames(user);
@@ -872,6 +1221,9 @@ export default function UserManagementSettings() {
                         </td>
                         <td className="px-4 md:px-6 py-3 text-slate-500 text-xs md:text-sm">
                           {user.departmentName || "未分配部门"}
+                        </td>
+                        <td className="px-4 md:px-6 py-3 text-slate-500 text-xs md:text-sm">
+                          {getPositionLabel(user.position, positionOptions)}
                         </td>
                         <td className="px-4 md:px-6 py-3 text-xs md:text-sm">
                           {dbRoleNames.length > 0 ? (
@@ -1080,14 +1432,18 @@ export default function UserManagementSettings() {
               disabled={savingEdit}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
             >
-              {POSITION_OPTIONS.map((option) => (
-                <option key={option.value || "empty"} value={option.value}>
-                  {option.label}
+              <option value="">未设置</option>
+              {!selectedEditPositionExists && editPosition && (
+                <option value={editPosition}>{editPosition}（当前已停用或未配置）</option>
+              )}
+              {editPositionOptions.map((option) => (
+                <option key={option.id} value={option.code}>
+                  {option.name}
                 </option>
               ))}
             </select>
             <p className="mt-1 text-[11px] text-slate-400">
-              用于创意部需求列表分流：设计岗位看 UI / 美工 / Banner，视频剪辑岗位看视频剪辑。管理员、部门负责人和“全部创意需求”可查看全部。
+              岗位选项来自上方岗位配置；用于按部门和需求类型控制默认可见范围。管理员、部门负责人仍可查看全部。
             </p>
           </div>
           <div>
