@@ -2,7 +2,21 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Download, Search, Sparkles, Calendar, User, Copy } from "lucide-react";
+import {
+  Plus,
+  Download,
+  Search,
+  Sparkles,
+  Calendar,
+  User,
+  Copy,
+  X,
+  ExternalLink,
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  PackageCheck,
+} from "lucide-react";
 import { DemandStatus, Priority, Department, Demand, FieldDefinition, type DemandType, type DepartmentWorkflowConfig } from "../../../types";
 import { getSupabaseClient } from "../../../lib/supabase";
 import { authorizedFetch } from "../../../lib/authFetch";
@@ -123,6 +137,7 @@ export default function DemandsPage() {
   const [deleteTargetDemand, setDeleteTargetDemand] = useState<Demand | null>(null);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [previewDemand, setPreviewDemand] = useState<Demand | null>(null);
 
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importDepartmentId, setImportDepartmentId] = useState<string>("");
@@ -138,6 +153,10 @@ export default function DemandsPage() {
         results: { rowNumber: number; success: boolean; message?: string }[];
       }
   >(null);
+
+  const selectedPreviewIndex = previewDemand
+    ? demands.findIndex((demand) => demand.id === previewDemand.id)
+    : -1;
 
   const creativeDepartment = departments.find((department) => department.slug === "design") || null;
   const isCurrentUserCreativeMember =
@@ -841,6 +860,7 @@ export default function DemandsPage() {
       }
       setDemands((prev) => prev.filter((d) => d.id !== deleteTargetDemand.id));
       setTotal((prev) => Math.max(0, prev - 1));
+      setPreviewDemand((prev) => (prev?.id === deleteTargetDemand.id ? null : prev));
       setDeleteTargetDemand(null);
     } catch (e) {
       console.error("delete demand from list error", e);
@@ -869,6 +889,113 @@ export default function DemandsPage() {
     } catch (e) {
       console.error("copy demand error", e);
     }
+  };
+
+  const openDemandPreview = (demand: Demand) => {
+    setPreviewDemand(demand);
+  };
+
+  const showAdjacentPreviewDemand = (direction: "prev" | "next") => {
+    if (selectedPreviewIndex < 0) return;
+    const nextIndex = direction === "prev" ? selectedPreviewIndex - 1 : selectedPreviewIndex + 1;
+    if (nextIndex < 0 || nextIndex >= demands.length) return;
+    setPreviewDemand(demands[nextIndex]);
+  };
+
+  const getFieldLabel = (key: string) => {
+    const field = dynamicFilterFields.find((item) => item.id === key || item.label === key);
+    return field?.label || key;
+  };
+
+  const normalizePreviewValue = (value: any): string => {
+    if (value === null || value === undefined || value === "") return "";
+    if (Array.isArray(value)) {
+      return value
+        .map((item) => normalizePreviewValue(item))
+        .filter(Boolean)
+        .join("，");
+    }
+    if (typeof value === "object") {
+      if (typeof value.name === "string") return value.name;
+      if (typeof value.url === "string") return value.url;
+      if (typeof value.label === "string") return value.label;
+      return JSON.stringify(value);
+    }
+    return String(value);
+  };
+
+  const isLikelyAssetField = (label: string, value: string) => {
+    const text = `${label} ${value}`.toLowerCase();
+    return (
+      text.includes("素材") ||
+      text.includes("参考图") ||
+      text.includes("附件") ||
+      text.includes("白底图") ||
+      text.includes("psd") ||
+      text.includes("图片") ||
+      text.includes("链接") ||
+      text.includes("url") ||
+      text.includes("http")
+    );
+  };
+
+  const getPreviewFields = (demand: Demand | null) => {
+    if (!demand?.customFields) return [];
+    return Object.entries(demand.customFields)
+      .map(([key, value]) => ({
+        key,
+        label: getFieldLabel(key),
+        value: normalizePreviewValue(value),
+      }))
+      .filter((item) => item.value.length > 0 && !["customerName", "projectName"].includes(item.key));
+  };
+
+  const getImportantPreviewFields = (demand: Demand | null) => {
+    const importantKeywords = [
+      "文案",
+      "尺寸",
+      "版式",
+      "素材数量",
+      "数量",
+      "参考图",
+      "原素材",
+      "产品",
+      "品牌",
+      "客户",
+      "公司",
+      "链接",
+      "站点",
+      "psd",
+    ];
+    const fields = getPreviewFields(demand);
+    const important = fields.filter((field) => {
+      const label = field.label.toLowerCase();
+      return importantKeywords.some((keyword) => label.includes(keyword.toLowerCase()));
+    });
+    return (important.length > 0 ? important : fields).slice(0, 8);
+  };
+
+  const getAssetPreviewFields = (demand: Demand | null) =>
+    getPreviewFields(demand)
+      .filter((field) => isLikelyAssetField(field.label, field.value))
+      .slice(0, 5);
+
+  const renderPreviewValue = (value: string) => {
+    const urlMatch = value.match(/https?:\/\/[^\s，,]+/);
+    if (urlMatch) {
+      return (
+        <a
+          href={urlMatch[0]}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-blue-600 hover:text-blue-700 break-all"
+        >
+          {value}
+        </a>
+      );
+    }
+    return <span className="break-words">{value}</span>;
   };
 
   const handleDownloadImportTemplate = async () => {
@@ -1524,7 +1651,7 @@ export default function DemandsPage() {
                   <tr
                     key={demand.id}
                     className="hover:bg-slate-50 transition-colors cursor-pointer"
-                    onClick={() => router.push(`/demands/${demand.id}`)}
+                    onClick={() => openDemandPreview(demand)}
                   >
                     <td className="px-6 py-5 text-slate-500 font-mono text-sm whitespace-nowrap">{demand.id}</td>
                     <td className="px-6 py-5">
@@ -1912,7 +2039,7 @@ export default function DemandsPage() {
             <div
               key={demand.id}
               className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm active:scale-[0.98] transition-transform"
-              onClick={() => router.push(`/demands/${demand.id}`)}
+              onClick={() => openDemandPreview(demand)}
             >
               <div className="flex justify-between items-start mb-3">
                 <div className="font-mono text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded">
@@ -2002,6 +2129,189 @@ export default function DemandsPage() {
           );
         })}
       </div>
+
+      {previewDemand && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/35">
+          <button
+            type="button"
+            aria-label="关闭需求预览"
+            className="absolute inset-0 cursor-default"
+            onClick={() => setPreviewDemand(null)}
+          />
+          <aside className="relative z-10 flex h-full w-full max-w-[620px] flex-col bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+              <div className="min-w-0">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span className="rounded bg-slate-100 px-2 py-1 font-mono text-xs text-slate-500">
+                    {previewDemand.id}
+                  </span>
+                  {renderPriorityBadge(previewDemand)}
+                  {renderStatusBadge(previewDemand)}
+                </div>
+                <h2 className="text-lg font-bold leading-snug text-slate-900">
+                  {previewDemand.title}
+                </h2>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                  <span>{departments.find((d) => d.id === previewDemand.departmentId)?.name || "未知部门"}</span>
+                  {previewDemand.demandTypeName && <span>· {previewDemand.demandTypeName}</span>}
+                  {previewDemand.dueDate && <span>· 截止 {previewDemand.dueDate}</span>}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewDemand(null)}
+                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                  <div className="text-xs text-slate-400">提交人</div>
+                  <div className="mt-1 font-semibold text-slate-800">
+                    {previewDemand.creatorName || previewDemand.creatorId}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                  <div className="text-xs text-slate-400">执行人</div>
+                  <div className="mt-1 font-semibold text-slate-800">
+                    {previewDemand.assigneeName || previewDemand.assigneeId || "未指定"}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                  <div className="text-xs text-slate-400">创建时间</div>
+                  <div className="mt-1 font-semibold text-slate-800">
+                    {previewDemand.createdAt || "-"}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                  <div className="text-xs text-slate-400">完成时间</div>
+                  <div className="mt-1 font-semibold text-slate-800">
+                    {previewDemand.finishedAt || previewDemand.closedAt || "-"}
+                  </div>
+                </div>
+              </div>
+
+              <section className="mt-5">
+                <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-900">
+                  <FileText className="h-4 w-4 text-blue-600" />
+                  需求核心内容
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-700">
+                  {previewDemand.description || "暂无描述"}
+                </div>
+              </section>
+
+              <section className="mt-5">
+                <div className="mb-2 text-sm font-bold text-slate-900">重要字段</div>
+                {getImportantPreviewFields(previewDemand).length === 0 ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-400">
+                    暂无可预览的核心字段
+                  </div>
+                ) : (
+                  <div className="grid gap-2">
+                    {getImportantPreviewFields(previewDemand).map((field) => (
+                      <div
+                        key={`${field.key}-${field.label}`}
+                        className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2"
+                      >
+                        <div className="text-xs font-semibold text-slate-500">{field.label}</div>
+                        <div className="mt-1 text-sm leading-6 text-slate-800">
+                          {renderPreviewValue(field.value)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="mt-5">
+                <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-900">
+                  <PackageCheck className="h-4 w-4 text-emerald-600" />
+                  素材与处理线索
+                </div>
+                {getAssetPreviewFields(previewDemand).length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-400">
+                    当前列表数据里没有识别到素材、参考图或链接字段；完整附件可进入详情页查看。
+                  </div>
+                ) : (
+                  <div className="grid gap-2">
+                    {getAssetPreviewFields(previewDemand).map((field) => (
+                      <div
+                        key={`asset-${field.key}-${field.label}`}
+                        className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2"
+                      >
+                        <div className="text-xs font-semibold text-emerald-700">{field.label}</div>
+                        <div className="mt-1 text-sm leading-6 text-slate-800">
+                          {renderPreviewValue(field.value)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+
+            <div className="border-t border-slate-200 bg-white px-5 py-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => showAdjacentPreviewDemand("prev")}
+                  disabled={selectedPreviewIndex <= 0}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ChevronLeft className="h-4 w-4" /> 上一条
+                </button>
+                <button
+                  type="button"
+                  onClick={() => showAdjacentPreviewDemand("next")}
+                  disabled={selectedPreviewIndex < 0 || selectedPreviewIndex >= demands.length - 1}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  下一条 <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                <button
+                  type="button"
+                  onClick={() => router.push(`/demands/${previewDemand.id}`)}
+                  className="inline-flex items-center justify-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700"
+                >
+                  <ExternalLink className="h-4 w-4" /> 进入详情
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/demands/${previewDemand.id}`)}
+                  className="inline-flex items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-2 text-sm font-bold text-white hover:bg-slate-800"
+                >
+                  整理为 PSD
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCopyDemand(previewDemand)}
+                  className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  <Copy className="h-4 w-4" /> 复制
+                </button>
+                {canDeleteDemand(previewDemand) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeleteError(null);
+                      setDeleteTargetDemand(previewDemand);
+                    }}
+                    className="inline-flex items-center justify-center rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-600 hover:bg-rose-100"
+                  >
+                    删除
+                  </button>
+                )}
+              </div>
+            </div>
+          </aside>
+        </div>
+      )}
 
       <Modal
         isOpen={importModalOpen}
