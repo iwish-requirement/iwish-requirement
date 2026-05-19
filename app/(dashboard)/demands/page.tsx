@@ -142,6 +142,17 @@ export default function DemandsPage() {
   const [previewAssigneeEmail, setPreviewAssigneeEmail] = useState("");
   const [previewAssigning, setPreviewAssigning] = useState(false);
   const [previewAssignError, setPreviewAssignError] = useState<string | null>(null);
+  const [previewDeptUsers, setPreviewDeptUsers] = useState<{
+    id: number;
+    name: string | null;
+    email: string | null;
+  }[]>([]);
+  const [previewDeptUsersLoading, setPreviewDeptUsersLoading] = useState(false);
+  const [previewWorkflowConfig, setPreviewWorkflowConfig] = useState<DepartmentWorkflowConfig | null>(null);
+  const [previewWorkflowLoading, setPreviewWorkflowLoading] = useState(false);
+  const [previewStatusValue, setPreviewStatusValue] = useState("");
+  const [previewStatusUpdating, setPreviewStatusUpdating] = useState(false);
+  const [previewStatusError, setPreviewStatusError] = useState<string | null>(null);
 
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importDepartmentId, setImportDepartmentId] = useState<string>("");
@@ -163,6 +174,8 @@ export default function DemandsPage() {
     : -1;
 
   const creativeDepartment = departments.find((department) => department.slug === "design") || null;
+  const isCreativeDemand = (demand: Demand | null) =>
+    !!demand && !!creativeDepartment && demand.departmentId === creativeDepartment.id;
   const isCurrentUserCreativeMember =
     !!creativeDepartment &&
     !!currentUserDepartmentId &&
@@ -827,6 +840,14 @@ export default function DemandsPage() {
   const canDeleteAnyDemand = currentUserPermissions.includes("demand.delete");
   const canDeleteDemand = (demand: Demand) =>
     canDeleteAnyDemand || (!!currentUserId && demand.creatorUserId === currentUserId);
+  const canUpdatePreviewStatus = (demand: Demand | null) => {
+    if (!demand) return false;
+    if (currentUserRole === "admin") return true;
+    if (!currentUserDepartmentId || Number(demand.departmentId) !== currentUserDepartmentId) {
+      return false;
+    }
+    return currentUserRole === "manager" || demand.assigneeUserId === currentUserId;
+  };
   const canAssignPreviewDemand = (demand: Demand | null) => {
     if (!demand) return false;
     if (currentUserRole === "admin") return true;
@@ -862,6 +883,28 @@ export default function DemandsPage() {
     const preferred = availableRelationshipViews.find((item) => item.key === "created");
     setRelationshipView((preferred?.key || availableRelationshipViews[0].key) as "all" | "created" | "assigned");
   }, [availableRelationshipViews, relationshipView]);
+
+  const previewStatusOptions = React.useMemo(() => {
+    if (!previewDemand) return [];
+    const current = (previewDemand.status as string) || "";
+    const statuses = previewWorkflowConfig?.statuses || [];
+    if (statuses.length === 0) {
+      return allStatusOptions.filter((status) => status.value !== "all");
+    }
+
+    const currentConfig = statuses.find((status) => status.value === current);
+    const allowedValues =
+      currentConfig && Array.isArray(currentConfig.transitions) && currentConfig.transitions.length > 0
+        ? new Set([current, ...currentConfig.transitions])
+        : null;
+
+    return statuses
+      .filter((status) => !allowedValues || allowedValues.has(status.value))
+      .map((status) => ({
+        value: status.value,
+        label: status.label,
+      }));
+  }, [allStatusOptions, previewDemand, previewWorkflowConfig]);
 
 
   const maxPage = Math.max(1, Math.ceil(total / pageSize));
@@ -950,11 +993,114 @@ export default function DemandsPage() {
     }
   };
 
+  const handlePreviewStatusChange = async () => {
+    if (!previewDemand || !previewStatusValue || previewStatusValue === previewDemand.status || previewStatusUpdating) {
+      return;
+    }
+    try {
+      setPreviewStatusUpdating(true);
+      setPreviewStatusError(null);
+      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(previewDemand.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: previewStatusValue,
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("update demand status from preview error", text);
+        setPreviewStatusError("状态更新失败，请稍后重试");
+        return;
+      }
+
+      const json = await res.json();
+      const updatedDemand = json.demand as Demand | undefined;
+      if (!updatedDemand) return;
+
+      setDemands((prev) =>
+        prev.map((demand) => (demand.id === updatedDemand.id ? updatedDemand : demand)),
+      );
+      setPreviewDemand(updatedDemand);
+      setPreviewStatusValue(updatedDemand.status || "");
+    } catch (e) {
+      console.error("update demand status from preview error", e);
+      setPreviewStatusError("状态更新失败，请检查网络后重试");
+    } finally {
+      setPreviewStatusUpdating(false);
+    }
+  };
+
   const openDemandPreview = (demand: Demand) => {
     setPreviewDemand(demand);
     setPreviewAssigneeEmail("");
     setPreviewAssignError(null);
+    setPreviewStatusValue(demand.status || "");
+    setPreviewStatusError(null);
   };
+
+  useEffect(() => {
+    if (!previewDemand) {
+      setPreviewDeptUsers([]);
+      setPreviewWorkflowConfig(null);
+      return;
+    }
+
+    const departmentId = previewDemand.departmentId;
+    const loadPreviewDepartmentMeta = async () => {
+      try {
+        setPreviewDeptUsersLoading(true);
+        setPreviewWorkflowLoading(true);
+        const [usersRes, workflowRes] = await Promise.all([
+          authorizedFetch(
+          `/api/users/by-department?departmentId=${encodeURIComponent(departmentId)}`,
+          ),
+          authorizedFetch(
+            `/api/departments/${encodeURIComponent(departmentId)}/workflow-config`,
+          ),
+        ]);
+
+        if (!usersRes.ok) {
+          console.error("load preview department users error", await usersRes.text());
+          setPreviewDeptUsers([]);
+        } else {
+          const json = await usersRes.json();
+          const items = (json.items || []) as {
+            id: number;
+            name: string | null;
+            email: string | null;
+          }[];
+          setPreviewDeptUsers(items);
+        }
+
+        if (!workflowRes.ok) {
+          console.error("load preview workflow config error", await workflowRes.text());
+          setPreviewWorkflowConfig(null);
+        } else {
+          const json = await workflowRes.json();
+          const cfg = (json.config || null) as DepartmentWorkflowConfig | null;
+          if (!cfg || !Array.isArray(cfg.statuses) || !Array.isArray(cfg.priorities)) {
+            setPreviewWorkflowConfig(null);
+          } else {
+            setPreviewWorkflowConfig({
+              priorities: [...cfg.priorities].sort((a, b) => a.order - b.order),
+              statuses: [...cfg.statuses].sort((a, b) => a.order - b.order),
+            });
+          }
+        }
+      } catch (e) {
+        console.error("load preview department meta error", e);
+        setPreviewDeptUsers([]);
+        setPreviewWorkflowConfig(null);
+      } finally {
+        setPreviewDeptUsersLoading(false);
+        setPreviewWorkflowLoading(false);
+      }
+    };
+
+    loadPreviewDepartmentMeta();
+  }, [previewDemand?.departmentId]);
 
   useEffect(() => {
     if (!previewDemand) return;
@@ -2326,13 +2472,13 @@ export default function DemandsPage() {
                           setPreviewAssigneeEmail(e.target.value);
                           setPreviewAssignError(null);
                         }}
-                        disabled={previewAssigning || deptUsersLoading}
+                        disabled={previewAssigning || previewDeptUsersLoading}
                         className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
                       >
                         <option value="">
-                          {deptUsersLoading ? "正在加载部门成员..." : "选择执行人"}
+                          {previewDeptUsersLoading ? "正在加载部门成员..." : "选择执行人"}
                         </option>
-                        {deptUsers
+                        {previewDeptUsers
                           .filter((user) => user.email && user.email !== previewDemand.assigneeEmail)
                           .map((user) => {
                             const displayName = user.name || user.email?.split("@")[0] || user.email;
@@ -2346,7 +2492,7 @@ export default function DemandsPage() {
                       <button
                         type="button"
                         onClick={handlePreviewAssignAssignee}
-                        disabled={!previewAssigneeEmail || previewAssigning || deptUsersLoading}
+                        disabled={!previewAssigneeEmail || previewAssigning || previewDeptUsersLoading}
                         className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {previewAssigning ? "分配中..." : "分配"}
@@ -2355,7 +2501,7 @@ export default function DemandsPage() {
                     {previewAssignError && (
                       <div className="mt-2 text-xs text-rose-600">{previewAssignError}</div>
                     )}
-                    {deptUsers.length === 0 && !deptUsersLoading && (
+                    {previewDeptUsers.length === 0 && !previewDeptUsersLoading && (
                       <div className="mt-2 text-xs text-slate-400">
                         当前部门暂无可分配成员，请先确认用户已加入该部门。
                       </div>
@@ -2364,6 +2510,60 @@ export default function DemandsPage() {
                 ) : (
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-400">
                     当前账号不能在此处直接分配该需求。
+                  </div>
+                )}
+              </section>
+
+              <section className="mt-5">
+                <div className="mb-2 text-sm font-bold text-slate-900">流转状态</div>
+                {canUpdatePreviewStatus(previewDemand) ? (
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <select
+                        value={previewStatusValue || previewDemand.status || ""}
+                        onChange={(e) => {
+                          setPreviewStatusValue(e.target.value);
+                          setPreviewStatusError(null);
+                        }}
+                        disabled={previewStatusUpdating || previewWorkflowLoading}
+                        className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
+                      >
+                        {previewStatusOptions.length === 0 ? (
+                          <option value={previewDemand.status || ""}>
+                            {previewWorkflowLoading ? "正在加载流转状态..." : "暂无可用状态"}
+                          </option>
+                        ) : (
+                          previewStatusOptions.map((status) => (
+                            <option key={status.value} value={status.value}>
+                              {status.label}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handlePreviewStatusChange}
+                        disabled={
+                          !previewStatusValue ||
+                          previewStatusValue === previewDemand.status ||
+                          previewStatusUpdating ||
+                          previewWorkflowLoading
+                        }
+                        className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {previewStatusUpdating ? "更新中..." : "更新状态"}
+                      </button>
+                    </div>
+                    {previewStatusError && (
+                      <div className="mt-2 text-xs text-rose-600">{previewStatusError}</div>
+                    )}
+                    <div className="mt-2 text-xs text-slate-400">
+                      状态选项来自当前需求所属部门的工作流配置。
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-400">
+                    当前账号不能在此处修改该需求状态。
                   </div>
                 )}
               </section>
@@ -2445,13 +2645,15 @@ export default function DemandsPage() {
                 >
                   <ExternalLink className="h-4 w-4" /> 进入详情
                 </button>
-                <button
-                  type="button"
-                  onClick={() => router.push(`/demands/${previewDemand.id}`)}
-                  className="inline-flex items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-2 text-sm font-bold text-white hover:bg-slate-800"
-                >
-                  整理为 PSD
-                </button>
+                {isCreativeDemand(previewDemand) && (
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/demands/${previewDemand.id}`)}
+                    className="inline-flex items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-2 text-sm font-bold text-white hover:bg-slate-800"
+                  >
+                    整理为 PSD
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => handleCopyDemand(previewDemand)}
