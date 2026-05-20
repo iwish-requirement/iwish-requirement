@@ -28,7 +28,6 @@ import {
   resolveCreativeDemandRole,
   type CreativeDemandRole,
 } from "../../../lib/creativeDemandAccess";
-import { getAllowedForwardWorkflowStatuses, isSameWorkflowStatus } from "../../../lib/workflowStatus";
 
 const normalizePriorityForRealtime = (raw: any): string => {
   const value = (raw ?? "").toString();
@@ -893,19 +892,25 @@ export default function DemandsPage() {
       return allStatusOptions.filter((status) => status.value !== "all");
     }
 
-    const currentConfig = statuses.find((status) => isSameWorkflowStatus(status, current));
+    const normalizedCurrent = current.trim().toLowerCase();
+    const currentConfig = statuses.find(
+      (status) =>
+        status.value.trim().toLowerCase() === normalizedCurrent ||
+        status.label.trim().toLowerCase() === normalizedCurrent,
+    );
     const currentOption = {
-      value: currentConfig?.value || current,
+      value: current,
       label: currentConfig?.label || previewDemand.statusLabel || current,
     };
 
-    const forwardStatuses = getAllowedForwardWorkflowStatuses(previewWorkflowConfig, current) || [];
-    const forwardOptions = forwardStatuses.map((status) => ({
-      value: status.value,
-      label: status.label,
-    }));
+    const configuredOptions = statuses
+      .filter((status) => status.value !== current && status.label !== current)
+      .map((status) => ({
+        value: status.value,
+        label: status.label,
+      }));
 
-    return [currentOption, ...forwardOptions];
+    return [currentOption, ...configuredOptions];
   }, [allStatusOptions, previewDemand, previewWorkflowConfig]);
 
 

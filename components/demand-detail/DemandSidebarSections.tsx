@@ -109,6 +109,17 @@ const DemandSidebarSections = React.memo(function DemandSidebarSections({
     getFallbackStatusLabel(demand.status);
 
   const quickStatusSelectOptions = React.useMemo(() => {
+    if (workflowConfig && workflowConfig.statuses.length > 0) {
+      const configuredOptions = workflowConfig.statuses
+        .filter((status) => status.value !== demand.status && status.label !== demand.status)
+        .map((status) => ({
+          value: status.value,
+          label: status.label,
+        }));
+
+      return [{ value: demand.status, label: currentStatusLabel }, ...configuredOptions];
+    }
+
     if (getAllowedNextStatuses !== null && getAllowedNextStatuses.length > 0) {
       return [
         { value: demand.status, label: currentStatusLabel },
@@ -117,23 +128,6 @@ const DemandSidebarSections = React.memo(function DemandSidebarSections({
           label: status.label,
         })),
       ];
-    }
-
-    if (workflowConfig && workflowConfig.statuses.length > 0) {
-      const forwardOptions = workflowConfig.statuses
-        .map((status, index) => ({
-          value: status.value,
-          label: status.label,
-          index,
-        }))
-        .filter((option) =>
-          currentStatusIndex >= 0
-            ? option.index > currentStatusIndex
-            : option.value !== demand.status
-        )
-        .map(({ value, label }) => ({ value, label }));
-
-      return [{ value: demand.status, label: currentStatusLabel }, ...forwardOptions];
     }
 
     if (normalizedStatusForFlow == null) {
