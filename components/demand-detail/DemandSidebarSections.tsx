@@ -110,14 +110,10 @@ const DemandSidebarSections = React.memo(function DemandSidebarSections({
 
   const quickStatusSelectOptions = React.useMemo(() => {
     if (workflowConfig && workflowConfig.statuses.length > 0) {
-      const configuredOptions = workflowConfig.statuses
-        .filter((status) => status.value !== demand.status && status.label !== demand.status)
-        .map((status) => ({
-          value: status.value,
-          label: status.label,
-        }));
-
-      return [{ value: demand.status, label: currentStatusLabel }, ...configuredOptions];
+      return workflowConfig.statuses.map((status) => ({
+        value: status.value,
+        label: status.label,
+      }));
     }
 
     if (getAllowedNextStatuses !== null && getAllowedNextStatuses.length > 0) {
