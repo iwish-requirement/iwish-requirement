@@ -893,17 +893,33 @@ export default function DemandsPage() {
     }
 
     const currentConfig = statuses.find((status) => status.value === current);
-    const allowedValues =
-      currentConfig && Array.isArray(currentConfig.transitions) && currentConfig.transitions.length > 0
-        ? new Set([current, ...currentConfig.transitions])
-        : null;
+    const currentOption = {
+      value: current,
+      label: currentConfig?.label || previewDemand.statusLabel || current,
+    };
 
-    return statuses
-      .filter((status) => !allowedValues || allowedValues.has(status.value))
+    if (currentConfig && Array.isArray(currentConfig.transitions) && currentConfig.transitions.length > 0) {
+      const allowedValues = new Set(currentConfig.transitions);
+      const nextOptions = statuses
+        .filter((status) => status.value !== current && allowedValues.has(status.value))
+        .map((status) => ({
+          value: status.value,
+          label: status.label,
+        }));
+
+      return [currentOption, ...nextOptions];
+    }
+
+    const currentIndex = statuses.findIndex((status) => status.value === current);
+    const forwardStatuses = currentIndex >= 0 ? statuses.slice(currentIndex + 1) : statuses;
+    const forwardOptions = forwardStatuses
+      .filter((status) => status.value !== current)
       .map((status) => ({
         value: status.value,
         label: status.label,
       }));
+
+    return [currentOption, ...forwardOptions];
   }, [allStatusOptions, previewDemand, previewWorkflowConfig]);
 
 
