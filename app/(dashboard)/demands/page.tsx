@@ -886,31 +886,15 @@ export default function DemandsPage() {
 
   const previewStatusOptions = React.useMemo(() => {
     if (!previewDemand) return [];
-    const current = (previewDemand.status as string) || "";
     const statuses = previewWorkflowConfig?.statuses || [];
     if (statuses.length === 0) {
       return allStatusOptions.filter((status) => status.value !== "all");
     }
 
-    const normalizedCurrent = current.trim().toLowerCase();
-    const currentConfig = statuses.find(
-      (status) =>
-        status.value.trim().toLowerCase() === normalizedCurrent ||
-        status.label.trim().toLowerCase() === normalizedCurrent,
-    );
-    const currentOption = {
-      value: current,
-      label: currentConfig?.label || previewDemand.statusLabel || current,
-    };
-
-    const configuredOptions = statuses
-      .filter((status) => status.value !== current && status.label !== current)
-      .map((status) => ({
-        value: status.value,
-        label: status.label,
-      }));
-
-    return [currentOption, ...configuredOptions];
+    return statuses.map((status) => ({
+      value: status.value,
+      label: status.label,
+    }));
   }, [allStatusOptions, previewDemand, previewWorkflowConfig]);
 
 
