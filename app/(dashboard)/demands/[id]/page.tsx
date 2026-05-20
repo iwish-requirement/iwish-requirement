@@ -30,6 +30,7 @@ import {
   useDemandCommentActions,
   useDemandMutationActions,
 } from '../../../../hooks/useDemandDetailActions';
+import { getAllowedForwardWorkflowStatuses } from '../../../../lib/workflowStatus';
 
 const DemandCommentsSectionComponent = dynamic(
   () => import('../../../../components/DemandCommentsSection')
@@ -146,23 +147,7 @@ export default function DemandDetailPage() {
       return null;
     }
 
-    const currentStatusConfig = workflowConfig.statuses.find((s) => s.value === demand.status);
-    if (!currentStatusConfig) {
-      // 如果当前状态不在配置中，只允许切到配置里的其他状态
-      return workflowConfig.statuses.filter((s) => s.value !== demand.status);
-    }
-
-    const currentOrder = currentStatusConfig.order;
-
-    // 如果配置了 transitions，则：只允许 transitions 中，且 order 比当前大的状态
-    if (currentStatusConfig.transitions && currentStatusConfig.transitions.length > 0) {
-      return workflowConfig.statuses.filter(
-        (s) => currentStatusConfig.transitions!.includes(s.value) && s.order > currentOrder
-      );
-    }
-
-    // 如果没有配置 transitions，则：只允许所有 order 在当前之后的状态
-    return workflowConfig.statuses.filter((s) => s.order > currentOrder);
+    return getAllowedForwardWorkflowStatuses(workflowConfig, demand.status);
   }, [demand, workflowConfig]);
 
   const currentUserDisplayName = React.useMemo(() => {
