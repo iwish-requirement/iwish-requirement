@@ -86,6 +86,9 @@ interface DepartmentMemberStat {
   demandsAssignee: number;
   demandsCompleted: number;
   materialCount: number;
+  imageMaterialCount?: number;
+  videoMaterialCount?: number;
+  pageCount?: number;
   avgCycleDays: number;
   scoreAvg: number;
   scoreCount: number;
@@ -737,7 +740,10 @@ export default function StatsPage() {
                     {/* <th className="py-2 px-4 font-medium whitespace-nowrap">角色</th> */}
                     <th className="py-2 px-4 font-medium whitespace-nowrap">负责需求数</th>
                     <th className="py-2 px-4 font-medium whitespace-nowrap">已完成需求数</th>
-                    <th className="py-2 px-4 font-medium whitespace-nowrap">素材数量</th>
+                    <th className="py-2 px-4 font-medium whitespace-nowrap">素材合计</th>
+                    <th className="py-2 px-4 font-medium whitespace-nowrap">平面素材</th>
+                    <th className="py-2 px-4 font-medium whitespace-nowrap">视频数量</th>
+                    <th className="py-2 px-4 font-medium whitespace-nowrap">页面数量</th>
                     <th className="py-2 px-4 font-medium whitespace-nowrap">平均处理天数</th>
                     <th className="py-2 px-4 font-medium whitespace-nowrap">平均评分</th>
                     <th className="py-2 px-4 font-medium whitespace-nowrap">评分次数</th>
@@ -761,6 +767,9 @@ export default function StatsPage() {
                       <td className="py-2 px-4 text-slate-700">{m.demandsAssignee}</td>
                       <td className="py-2 px-4 text-slate-700">{m.demandsCompleted}</td>
                       <td className="py-2 px-4 text-slate-700">{m.materialCount ?? 0}</td>
+                      <td className="py-2 px-4 text-slate-700">{m.imageMaterialCount ?? 0}</td>
+                      <td className="py-2 px-4 text-slate-700">{m.videoMaterialCount ?? 0}</td>
+                      <td className="py-2 px-4 text-slate-700">{m.pageCount ?? 0}</td>
                       <td className="py-2 px-4 text-slate-700">
                         {m.demandsCompleted > 0 ? m.avgCycleDays.toFixed(1) : "-"}
                       </td>

@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest } from "../../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../../lib/serverPermissions";
 import { buildDemandStatusGroups } from "../../../../../lib/demandStatusGroups";
+import { inferDemandDeliveryCounts } from "../../../../../lib/demandDeliveryStats";
 
 
 export const runtime = "edge";
@@ -15,6 +16,9 @@ interface DepartmentMemberStat {
   demandsAssignee: number;
   demandsCompleted: number;
   materialCount: number;
+  imageMaterialCount: number;
+  videoMaterialCount: number;
+  pageCount: number;
   avgCycleDays: number;
   scoreAvg: number;
   scoreCount: number;
@@ -47,113 +51,6 @@ function getPeriodRange(period: string): { start: string; end: string } {
   const startDate = new Date(year, monthIndex, 1);
   const endDate = new Date(year, monthIndex + 1, 1);
   return { start: startDate.toISOString(), end: endDate.toISOString() };
-}
-
-function normalizeNumber(raw: unknown): number | null {
-  if (typeof raw === "number" && Number.isFinite(raw)) {
-    return Math.max(0, raw);
-  }
-
-  if (typeof raw !== "string") {
-    return null;
-  }
-
-  const trimmed = raw.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const exact = Number(trimmed);
-  if (Number.isFinite(exact)) {
-    return Math.max(0, exact);
-  }
-
-  const match = trimmed.match(/\d+(?:\.\d+)?/);
-  if (!match) {
-    return null;
-  }
-
-  const parsed = Number(match[0]);
-  return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
-}
-
-function countCollectionLikeValue(raw: unknown): number | null {
-  if (Array.isArray(raw)) {
-    return raw.length;
-  }
-
-  if (!raw || typeof raw !== "object") {
-    if (typeof raw === "string" && raw.trim()) {
-      return 1;
-    }
-    return null;
-  }
-
-  const candidate = raw as Record<string, unknown>;
-  for (const key of ["count", "length", "total", "quantity", "数量"]) {
-    const value = normalizeNumber(candidate[key]);
-    if (value !== null) {
-      return value;
-    }
-  }
-
-  return null;
-}
-
-function inferMaterialCountFromFields(fields: unknown): number | null {
-  if (!fields || typeof fields !== "object") {
-    return null;
-  }
-
-  const payload = fields as Record<string, unknown>;
-  const explicitKeys = [
-    "material_count",
-    "materialCount",
-    "materials_count",
-    "asset_count",
-    "assetCount",
-    "image_count",
-    "imageCount",
-    "video_count",
-    "videoCount",
-    "素材数量",
-    "图片数量",
-    "视频数量",
-  ];
-
-  for (const key of explicitKeys) {
-    if (!Object.prototype.hasOwnProperty.call(payload, key)) {
-      continue;
-    }
-
-    const value = normalizeNumber(payload[key]) ?? countCollectionLikeValue(payload[key]);
-    if (value !== null) {
-      return value;
-    }
-  }
-
-  const assetReferenceKeys = [
-    "source_materials",
-    "sourceMaterials",
-    "assetUrl",
-    "asset_url",
-    "assets",
-    "materials",
-    "原素材",
-  ];
-
-  for (const key of assetReferenceKeys) {
-    if (!Object.prototype.hasOwnProperty.call(payload, key)) {
-      continue;
-    }
-
-    const value = countCollectionLikeValue(payload[key]);
-    if (value !== null) {
-      return value;
-    }
-  }
-
-  return null;
 }
 
 export async function GET(req: NextRequest) {
@@ -296,6 +193,9 @@ export async function GET(req: NextRequest) {
       demandsAssignee: number;
       demandsCompleted: number;
       materialCount: number;
+      imageMaterialCount: number;
+      videoMaterialCount: number;
+      pageCount: number;
       cycleDurations: number[];
       scoreValues: number[];
     };
@@ -311,6 +211,9 @@ export async function GET(req: NextRequest) {
           demandsAssignee: 0,
           demandsCompleted: 0,
           materialCount: 0,
+          imageMaterialCount: 0,
+          videoMaterialCount: 0,
+          pageCount: 0,
           cycleDurations: [],
           scoreValues: [],
         };
@@ -318,8 +221,11 @@ export async function GET(req: NextRequest) {
       }
 
       bucket.demandsAssignee += 1;
-      bucket.materialCount +=
-        inferMaterialCountFromFields(row.fields) ?? attachmentCountByDemand.get(row.id) ?? 0;
+      const deliveryCounts = inferDemandDeliveryCounts(row.fields, attachmentCountByDemand.get(row.id) ?? 0);
+      bucket.materialCount += deliveryCounts.materialCount;
+      bucket.imageMaterialCount += deliveryCounts.imageMaterialCount;
+      bucket.videoMaterialCount += deliveryCounts.videoMaterialCount;
+      bucket.pageCount += deliveryCounts.pageCount;
 
       const status = (row.status || "").toLowerCase();
       if (statusGroups.completed.includes(status)) {
@@ -344,6 +250,9 @@ export async function GET(req: NextRequest) {
           demandsAssignee: 0,
           demandsCompleted: 0,
           materialCount: 0,
+          imageMaterialCount: 0,
+          videoMaterialCount: 0,
+          pageCount: 0,
           cycleDurations: [],
           scoreValues: [],
         };
@@ -390,6 +299,9 @@ export async function GET(req: NextRequest) {
         demandsAssignee: bucket.demandsAssignee,
         demandsCompleted: bucket.demandsCompleted,
         materialCount: bucket.materialCount,
+        imageMaterialCount: bucket.imageMaterialCount,
+        videoMaterialCount: bucket.videoMaterialCount,
+        pageCount: bucket.pageCount,
         avgCycleDays,
         scoreAvg,
         scoreCount: bucket.scoreValues.length,
