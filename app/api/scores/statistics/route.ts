@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest } from "../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../lib/serverPermissions";
+import { resolveStatsScopeForUser } from "../../../../lib/statScope";
 
 
 export const runtime = "edge";
@@ -48,6 +49,11 @@ export async function GET(req: NextRequest) {
 
     const url = new URL(req.url);
     const periodParam = url.searchParams.get("period");
+    const scopeResult = resolveStatsScopeForUser(authResult.user, url.searchParams.get("departmentId"));
+    if (scopeResult.errorResponse) {
+      return scopeResult.errorResponse;
+    }
+    const departmentId = scopeResult.scope!.departmentId;
 
     let query = supabaseAdmin
       .from("score_records")
@@ -55,6 +61,9 @@ export async function GET(req: NextRequest) {
 
     if (periodParam && periodParam.trim()) {
       query = query.eq("period", periodParam.trim());
+    }
+    if (departmentId !== null) {
+      query = query.eq("department_id", departmentId);
     }
 
     const { data: records, error } = await query.returns<ScoreRecordRow[]>();

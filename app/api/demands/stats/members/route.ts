@@ -4,6 +4,7 @@ import { getBusinessUserFromRequest } from "../../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../../lib/serverPermissions";
 import { buildDemandStatusGroups } from "../../../../../lib/demandStatusGroups";
 import { inferDemandDeliveryCounts } from "../../../../../lib/demandDeliveryStats";
+import { resolveStatsScopeForUser } from "../../../../../lib/statScope";
 
 
 export const runtime = "edge";
@@ -69,14 +70,13 @@ export async function GET(req: NextRequest) {
     const period = getPeriodFromQuery(url);
     const { start, end } = getPeriodRange(period);
 
-    const departmentIdParam = url.searchParams.get("departmentId");
-    if (!departmentIdParam) {
-      return NextResponse.json({ error: "departmentId is required" }, { status: 400 });
+    const scopeResult = resolveStatsScopeForUser(authResult.user, url.searchParams.get("departmentId"), {
+      requireDepartment: true,
+    });
+    if (scopeResult.errorResponse) {
+      return scopeResult.errorResponse;
     }
-    const departmentId = Number.parseInt(departmentIdParam, 10);
-    if (!Number.isFinite(departmentId) || departmentId <= 0) {
-      return NextResponse.json({ error: "invalid departmentId" }, { status: 400 });
-    }
+    const departmentId = scopeResult.scope!.departmentId!;
 
     const [demandsResult, usersResult, scoreRecordsResult, departmentResult] = await Promise.all([
       supabaseAdmin
