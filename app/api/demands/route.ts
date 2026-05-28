@@ -7,7 +7,6 @@ import { loadEffectivePermissionsForUser } from "../../../lib/serverPermissions"
 import { writeAuditLog } from "../../../lib/audit";
 import { extractLegacyCustomerProject } from "../../../lib/legacyDemandFields";
 import { buildDemandStatusGroups } from "../../../lib/demandStatusGroups";
-import { inferDemandDeliveryCounts } from "../../../lib/demandDeliveryStats";
 import {
   resolveAssignedStatusValue,
   resolveDepartmentDemandRules,
@@ -33,6 +32,36 @@ const DEMAND_LIST_SELECT =
 
 const DELIVERY_SUMMARY_SELECT =
   "id, department_id, creator_id, assignee_id, demand_type_id, status, fields, created_at, finished_at";
+
+type DashboardMetric = {
+  key: string;
+  label: string;
+  value: number;
+  kind: "count" | "field_sum";
+};
+
+function normalizeMetricNumber(raw: unknown): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.max(0, raw);
+  }
+  if (typeof raw !== "string") {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const exact = Number(trimmed);
+  if (Number.isFinite(exact)) {
+    return Math.max(0, exact);
+  }
+  const match = trimmed.match(/\d+(?:\.\d+)?/);
+  if (!match) {
+    return null;
+  }
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
+}
 
 const LEGACY_SEARCH_FIELD_KEYS = [
   "客户",
@@ -835,6 +864,7 @@ export async function GET(req: NextRequest) {
       const { data: monthlyRowsRaw, error: monthlyError } = await monthlyQuery;
       const monthlyRows = (monthlyRowsRaw || []) as {
         id: number;
+        department_id: number | null;
         status: string | null;
         fields: unknown;
         created_at: string | null;
@@ -843,23 +873,77 @@ export async function GET(req: NextRequest) {
 
       let monthlyCreated = 0;
       let monthlyCompleted = 0;
-      let monthlyMaterialCount = 0;
-      let monthlyImageMaterialCount = 0;
-      let monthlyVideoMaterialCount = 0;
-      let monthlyPageCount = 0;
       let monthlyTotalCycleDays = 0;
       let monthlyCycleCount = 0;
+      const monthlyFieldSums = new Map<string, { label: string; value: number; orderIndex: number }>();
 
       if (monthlyError) {
         console.error("[api/demands] monthly delivery summary error", monthlyError);
       } else {
+        const monthlyDepartmentIds = Array.from(
+          new Set(
+            monthlyRows
+              .map((row) => row.department_id)
+              .filter((id): id is number => typeof id === "number" && Number.isFinite(id) && id > 0),
+          ),
+        );
+
+        const numericFieldDefs = new Map<
+          string,
+          { key: string; label: string; departmentId: number; orderIndex: number }
+        >();
+        if (monthlyDepartmentIds.length > 0) {
+          const { data: fieldRows, error: fieldsError } = await supabaseAdmin
+            .from("department_fields")
+            .select("department_id, key, label, type, order_index")
+            .in("department_id", monthlyDepartmentIds)
+            .eq("type", "number")
+            .order("order_index", { ascending: true });
+
+          if (fieldsError) {
+            console.error("[api/demands] dashboard metric fields error", fieldsError);
+          } else {
+            for (const field of (fieldRows || []) as {
+              department_id: number | null;
+              key: string | null;
+              label: string | null;
+              order_index: number | null;
+            }[]) {
+              if (!field.department_id || !field.key || !field.label) {
+                continue;
+              }
+              numericFieldDefs.set(`${field.department_id}:${field.key}`, {
+                key: field.key,
+                label: field.label,
+                departmentId: field.department_id,
+                orderIndex: field.order_index ?? 999,
+              });
+            }
+          }
+        }
+
         monthlyCreated = monthlyRows.length;
         for (const row of monthlyRows) {
-          const deliveryCounts = inferDemandDeliveryCounts(row.fields);
-          monthlyMaterialCount += deliveryCounts.materialCount;
-          monthlyImageMaterialCount += deliveryCounts.imageMaterialCount;
-          monthlyVideoMaterialCount += deliveryCounts.videoMaterialCount;
-          monthlyPageCount += deliveryCounts.pageCount;
+          const fields = row.fields && typeof row.fields === "object" ? (row.fields as Record<string, unknown>) : {};
+          if (row.department_id) {
+            for (const fieldDef of numericFieldDefs.values()) {
+              if (fieldDef.departmentId !== row.department_id) {
+                continue;
+              }
+              const value = normalizeMetricNumber(fields[fieldDef.key]);
+              if (value === null) {
+                continue;
+              }
+              const metricKey = `field:${fieldDef.departmentId}:${fieldDef.key}`;
+              const current = monthlyFieldSums.get(metricKey) || {
+                label: fieldDef.label,
+                value: 0,
+                orderIndex: fieldDef.orderIndex,
+              };
+              current.value += value;
+              monthlyFieldSums.set(metricKey, current);
+            }
+          }
 
           const status = (row.status || "").toLowerCase();
           if (statusGroups.completed.includes(status)) {
@@ -876,6 +960,27 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      const dashboardMetrics: DashboardMetric[] = [
+        { key: "created", label: "本月新增", value: monthlyCreated, kind: "count" },
+        { key: "completed", label: "本月完成", value: monthlyCompleted, kind: "count" },
+        ...Array.from(monthlyFieldSums.entries())
+          .map(([key, item]) => ({
+            key,
+            label: item.label,
+            value: item.value,
+            kind: "field_sum" as const,
+            orderIndex: item.orderIndex,
+          }))
+          .sort((a, b) => {
+            if (a.orderIndex !== b.orderIndex) {
+              return a.orderIndex - b.orderIndex;
+            }
+            return a.label.localeCompare(b.label);
+          })
+          .slice(0, 4)
+          .map(({ orderIndex: _orderIndex, ...item }) => item),
+      ];
+
       return NextResponse.json({
         items,
         page: 1,
@@ -890,11 +995,8 @@ export async function GET(req: NextRequest) {
           period: `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`,
           created: monthlyCreated,
           completed: monthlyCompleted,
-          materialCount: monthlyMaterialCount,
-          imageMaterialCount: monthlyImageMaterialCount,
-          videoMaterialCount: monthlyVideoMaterialCount,
-          pageCount: monthlyPageCount,
           avgCycleDays: monthlyCycleCount > 0 ? monthlyTotalCycleDays / monthlyCycleCount : 0,
+          metrics: dashboardMetrics,
         },
       });
     }
