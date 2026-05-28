@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest } from "../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../lib/serverPermissions";
 import { buildDemandStatusGroups } from "../../../../lib/demandStatusGroups";
+import { inferDemandDeliveryCounts } from "../../../../lib/demandDeliveryStats";
 
 
 export const runtime = "edge";
@@ -43,6 +44,10 @@ function parsePeriodToRange(period: string | null): DateRange {
 interface MemberMetrics {
   demandsAssignee: number;
   demandsCompleted: number;
+  materialCount: number;
+  imageMaterialCount: number;
+  videoMaterialCount: number;
+  pageCount: number;
   avgCycleDays: number;
   scoreAvg: number;
   scoreCount: number;
@@ -95,7 +100,7 @@ export async function GET(req: NextRequest) {
 
     const demandsQuery = supabaseAdmin
       .from("demands")
-      .select("assignee_id, created_at, finished_at, status")
+      .select("id, assignee_id, created_at, finished_at, status, fields")
       .eq("department_id", departmentId)
       .gte("created_at", from)
       .lt("created_at", to);
@@ -134,11 +139,43 @@ export async function GET(req: NextRequest) {
     const memberMetricsMap = new Map<number, MemberMetrics>();
 
     const demandRows = (demandsResult.data ?? []) as {
+      id: number;
       assignee_id: number | null;
       created_at: string | null;
       finished_at: string | null;
       status: string | null;
+      fields: unknown;
     }[];
+
+    const demandIds = demandRows
+      .map((row) => row.id)
+      .filter((id): id is number => typeof id === "number" && Number.isFinite(id) && id > 0);
+    const attachmentCountByDemand = new Map<number, number>();
+    if (demandIds.length) {
+      const { data: attachmentRows, error: attachmentError } = await supabaseAdmin
+        .from("demand_attachments")
+        .select("demand_id")
+        .in("demand_id", demandIds);
+
+      if (attachmentError) {
+        console.error("[api/statistics/department-members] load attachments error", attachmentError);
+        return NextResponse.json(
+          { error: "failed_to_load_department_member_stats" },
+          { status: 500 },
+        );
+      }
+
+      for (const attachment of (attachmentRows ?? []) as { demand_id: number | null }[]) {
+        if (typeof attachment.demand_id !== "number") {
+          continue;
+        }
+        attachmentCountByDemand.set(
+          attachment.demand_id,
+          (attachmentCountByDemand.get(attachment.demand_id) ?? 0) + 1,
+        );
+      }
+    }
+
     const statusGroups = buildDemandStatusGroups(
       departmentResult.data ? [departmentResult.data as { status_config?: unknown }] : [],
     );
@@ -151,12 +188,21 @@ export async function GET(req: NextRequest) {
       const existing = memberMetricsMap.get(userId) ?? {
         demandsAssignee: 0,
         demandsCompleted: 0,
+        materialCount: 0,
+        imageMaterialCount: 0,
+        videoMaterialCount: 0,
+        pageCount: 0,
         avgCycleDays: 0,
         scoreAvg: 0,
         scoreCount: 0,
       };
 
       existing.demandsAssignee += 1;
+      const deliveryCounts = inferDemandDeliveryCounts(row.fields, attachmentCountByDemand.get(row.id) ?? 0);
+      existing.materialCount += deliveryCounts.materialCount;
+      existing.imageMaterialCount += deliveryCounts.imageMaterialCount;
+      existing.videoMaterialCount += deliveryCounts.videoMaterialCount;
+      existing.pageCount += deliveryCounts.pageCount;
 
       const statusValue = (row.status ?? "").toString().toLowerCase();
       if (statusGroups.completed.includes(statusValue)) {
@@ -211,6 +257,10 @@ export async function GET(req: NextRequest) {
       const existing = memberMetricsMap.get(userId) ?? {
         demandsAssignee: 0,
         demandsCompleted: 0,
+        materialCount: 0,
+        imageMaterialCount: 0,
+        videoMaterialCount: 0,
+        pageCount: 0,
         avgCycleDays: 0,
         scoreAvg: 0,
         scoreCount: 0,
@@ -270,6 +320,10 @@ export async function GET(req: NextRequest) {
         role: (user?.role ?? null) as string | null,
         demandsAssignee: metrics.demandsAssignee,
         demandsCompleted: metrics.demandsCompleted,
+        materialCount: metrics.materialCount,
+        imageMaterialCount: metrics.imageMaterialCount,
+        videoMaterialCount: metrics.videoMaterialCount,
+        pageCount: metrics.pageCount,
         avgCycleDays: metrics.avgCycleDays,
         scoreAvg: metrics.scoreAvg,
         scoreCount: metrics.scoreCount,
