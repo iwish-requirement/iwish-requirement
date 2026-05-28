@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { FileText, CheckCircle, Clock, TrendingUp, ArrowRight, AlertCircle, Plus, Image, Images, Video, LayoutTemplate } from 'lucide-react';
+import { FileText, CheckCircle, Clock, TrendingUp, ArrowRight, AlertCircle, Plus, BarChart3 } from 'lucide-react';
 import { DemandStatus, Priority } from '../../types';
 import { hasPermission } from '../../lib/permissions';
 import { authorizedFetch } from '../../lib/authFetch';
@@ -166,11 +166,15 @@ interface DeliverySummary {
   period: string;
   created: number;
   completed: number;
-  materialCount: number;
-  imageMaterialCount: number;
-  videoMaterialCount: number;
-  pageCount: number;
   avgCycleDays: number;
+  metrics: DashboardMetric[];
+}
+
+interface DashboardMetric {
+  key: string;
+  label: string;
+  value: number;
+  kind: 'count' | 'field_sum';
 }
 
 function formatScoreWindowRange(start: string | null | undefined, end: string | null | undefined): string | null {
@@ -340,11 +344,17 @@ export default function Dashboard() {
           period: typeof rawDelivery.period === 'string' ? rawDelivery.period : '',
           created: safeNumber(rawDelivery.created) ?? 0,
           completed: safeNumber(rawDelivery.completed) ?? 0,
-          materialCount: safeNumber(rawDelivery.materialCount) ?? 0,
-          imageMaterialCount: safeNumber(rawDelivery.imageMaterialCount) ?? 0,
-          videoMaterialCount: safeNumber(rawDelivery.videoMaterialCount) ?? 0,
-          pageCount: safeNumber(rawDelivery.pageCount) ?? 0,
           avgCycleDays: safeNumber(rawDelivery.avgCycleDays) ?? 0,
+          metrics: Array.isArray(rawDelivery.metrics)
+            ? rawDelivery.metrics
+                .map((metric: any) => ({
+                  key: typeof metric?.key === 'string' ? metric.key : '',
+                  label: typeof metric?.label === 'string' ? metric.label : '',
+                  value: safeNumber(metric?.value) ?? 0,
+                  kind: (metric?.kind === 'field_sum' ? 'field_sum' : 'count') as DashboardMetric['kind'],
+                }))
+                .filter((metric) => metric.key && metric.label)
+            : [],
         } : null);
       } catch (error) {
         console.error('dashboard load demands summary error', error);
@@ -436,6 +446,12 @@ export default function Dashboard() {
 
   const statsLoading = demandsLoading && pendingCount === null && inProgressCount === null && doneCount === null;
   const deliveryLoading = demandsLoading && deliverySummary === null;
+  const deliveryMetrics = deliverySummary?.metrics?.length
+    ? deliverySummary.metrics
+    : [
+        { key: 'created', label: '本月新增', value: deliverySummary?.created ?? 0, kind: 'count' as const },
+        { key: 'completed', label: '本月完成', value: deliverySummary?.completed ?? 0, kind: 'count' as const },
+      ];
 
   const formatNumber = (value: number | null) => {
 
@@ -591,20 +607,26 @@ export default function Dashboard() {
           )}
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 md:gap-4">
-          {[
-            { label: '本月新增', value: deliverySummary?.created ?? null, icon: FileText, tone: 'text-blue-600 bg-blue-50' },
-            { label: '本月完成', value: deliverySummary?.completed ?? null, icon: CheckCircle, tone: 'text-emerald-600 bg-emerald-50' },
-            { label: '素材合计', value: deliverySummary?.materialCount ?? null, icon: Images, tone: 'text-fuchsia-600 bg-fuchsia-50' },
-            { label: '平面素材', value: deliverySummary?.imageMaterialCount ?? null, icon: Image, tone: 'text-violet-600 bg-violet-50' },
-            { label: '视频数量', value: deliverySummary?.videoMaterialCount ?? null, icon: Video, tone: 'text-orange-600 bg-orange-50' },
-            { label: '页面数量', value: deliverySummary?.pageCount ?? null, icon: LayoutTemplate, tone: 'text-cyan-700 bg-cyan-50' },
-          ].map((item) => {
-            const Icon = item.icon;
+          {deliveryMetrics.map((item, index) => {
+            const Icon = item.key === 'created' ? FileText : item.key === 'completed' ? CheckCircle : BarChart3;
+            const tones = [
+              'text-blue-600 bg-blue-50',
+              'text-emerald-600 bg-emerald-50',
+              'text-fuchsia-600 bg-fuchsia-50',
+              'text-violet-600 bg-violet-50',
+              'text-orange-600 bg-orange-50',
+              'text-cyan-700 bg-cyan-50',
+            ];
+            const tone = item.key === 'created'
+              ? tones[0]
+              : item.key === 'completed'
+              ? tones[1]
+              : tones[(index % (tones.length - 2)) + 2];
             return (
               <div key={item.label} className="rounded-xl border border-slate-100 bg-slate-50/60 p-4 min-h-[104px]">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-xs font-semibold text-slate-500">{item.label}</span>
-                  <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${item.tone}`}>
+                  <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${tone}`}>
                     <Icon className="h-4 w-4" />
                   </span>
                 </div>
