@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { FileText, CheckCircle, Clock, TrendingUp, ArrowRight, AlertCircle, Plus } from 'lucide-react';
+import { FileText, CheckCircle, Clock, TrendingUp, ArrowRight, AlertCircle, Plus, Image, Images, Video, LayoutTemplate } from 'lucide-react';
 import { DemandStatus, Priority } from '../../types';
 import { hasPermission } from '../../lib/permissions';
 import { authorizedFetch } from '../../lib/authFetch';
@@ -162,6 +162,17 @@ interface DashboardUserInfo {
   permissions?: PermissionKey[];
 }
 
+interface DeliverySummary {
+  period: string;
+  created: number;
+  completed: number;
+  materialCount: number;
+  imageMaterialCount: number;
+  videoMaterialCount: number;
+  pageCount: number;
+  avgCycleDays: number;
+}
+
 function formatScoreWindowRange(start: string | null | undefined, end: string | null | undefined): string | null {
   if (!start || !end) {
     return null;
@@ -216,6 +227,7 @@ export default function Dashboard() {
   const [inProgressCount, setInProgressCount] = useState<number | null>(null);
   const [doneCount, setDoneCount] = useState<number | null>(null);
   const [recentDemands, setRecentDemands] = useState<any[]>([]);
+  const [deliverySummary, setDeliverySummary] = useState<DeliverySummary | null>(null);
   const [demandsLoading, setDemandsLoading] = useState(false);
 
   const [demandsError, setDemandsError] = useState<string | null>(null);
@@ -303,6 +315,7 @@ export default function Dashboard() {
             setInProgressCount(null);
             setDoneCount(null);
             setRecentDemands([]);
+            setDeliverySummary(null);
           }
           return;
         }
@@ -321,6 +334,18 @@ export default function Dashboard() {
 
         const items = Array.isArray(json.items) ? json.items : [];
         setRecentDemands(items);
+
+        const rawDelivery = json.deliverySummary as Partial<DeliverySummary> | undefined;
+        setDeliverySummary(rawDelivery ? {
+          period: typeof rawDelivery.period === 'string' ? rawDelivery.period : '',
+          created: safeNumber(rawDelivery.created) ?? 0,
+          completed: safeNumber(rawDelivery.completed) ?? 0,
+          materialCount: safeNumber(rawDelivery.materialCount) ?? 0,
+          imageMaterialCount: safeNumber(rawDelivery.imageMaterialCount) ?? 0,
+          videoMaterialCount: safeNumber(rawDelivery.videoMaterialCount) ?? 0,
+          pageCount: safeNumber(rawDelivery.pageCount) ?? 0,
+          avgCycleDays: safeNumber(rawDelivery.avgCycleDays) ?? 0,
+        } : null);
       } catch (error) {
         console.error('dashboard load demands summary error', error);
         if (!cancelled) {
@@ -329,6 +354,7 @@ export default function Dashboard() {
           setInProgressCount(null);
           setDoneCount(null);
           setRecentDemands([]);
+          setDeliverySummary(null);
         }
       } finally {
         if (!cancelled) {
@@ -409,6 +435,7 @@ export default function Dashboard() {
       : '仅看我负责的需求';
 
   const statsLoading = demandsLoading && pendingCount === null && inProgressCount === null && doneCount === null;
+  const deliveryLoading = demandsLoading && deliverySummary === null;
 
   const formatNumber = (value: number | null) => {
 
@@ -549,6 +576,47 @@ export default function Dashboard() {
           loading={false}
         />
 
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 md:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">本月关键交付</h2>
+            <p className="text-sm text-slate-500 mt-1">{scopeLabel} · 工作台直接展示常用产出指标</p>
+          </div>
+          {deliverySummary?.period && (
+            <span className="text-xs font-medium text-slate-500 bg-slate-50 border border-slate-200 rounded-full px-3 py-1">
+              {deliverySummary.period}
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 md:gap-4">
+          {[
+            { label: '本月新增', value: deliverySummary?.created ?? null, icon: FileText, tone: 'text-blue-600 bg-blue-50' },
+            { label: '本月完成', value: deliverySummary?.completed ?? null, icon: CheckCircle, tone: 'text-emerald-600 bg-emerald-50' },
+            { label: '素材合计', value: deliverySummary?.materialCount ?? null, icon: Images, tone: 'text-fuchsia-600 bg-fuchsia-50' },
+            { label: '平面素材', value: deliverySummary?.imageMaterialCount ?? null, icon: Image, tone: 'text-violet-600 bg-violet-50' },
+            { label: '视频数量', value: deliverySummary?.videoMaterialCount ?? null, icon: Video, tone: 'text-orange-600 bg-orange-50' },
+            { label: '页面数量', value: deliverySummary?.pageCount ?? null, icon: LayoutTemplate, tone: 'text-cyan-700 bg-cyan-50' },
+          ].map((item) => {
+            const Icon = item.icon;
+            return (
+              <div key={item.label} className="rounded-xl border border-slate-100 bg-slate-50/60 p-4 min-h-[104px]">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-semibold text-slate-500">{item.label}</span>
+                  <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${item.tone}`}>
+                    <Icon className="h-4 w-4" />
+                  </span>
+                </div>
+                {deliveryLoading ? (
+                  <div className="mt-4 h-7 w-16 bg-slate-200 rounded-md animate-pulse" />
+                ) : (
+                  <div className="mt-3 text-2xl font-bold text-slate-900">{formatNumber(item.value)}</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

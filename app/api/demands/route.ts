@@ -7,6 +7,7 @@ import { loadEffectivePermissionsForUser } from "../../../lib/serverPermissions"
 import { writeAuditLog } from "../../../lib/audit";
 import { extractLegacyCustomerProject } from "../../../lib/legacyDemandFields";
 import { buildDemandStatusGroups } from "../../../lib/demandStatusGroups";
+import { inferDemandDeliveryCounts } from "../../../lib/demandDeliveryStats";
 import {
   resolveAssignedStatusValue,
   resolveDepartmentDemandRules,
@@ -29,6 +30,9 @@ const DEPT_SLUG_MAP: Record<string, string> = {
 
 const DEMAND_LIST_SELECT =
   "id, department_id, creator_id, assignee_id, customer_id, project_id, demand_type_id, title, status, priority, fields, created_at, assigned_at, started_at, finished_at, closed_at, delayed_at";
+
+const DELIVERY_SUMMARY_SELECT =
+  "id, department_id, creator_id, assignee_id, demand_type_id, status, fields, created_at, finished_at";
 
 const LEGACY_SEARCH_FIELD_KEYS = [
   "客户",
@@ -815,6 +819,63 @@ export async function GET(req: NextRequest) {
         countForStatuses(statusGroups.completed),
       ]);
 
+      const now = new Date();
+      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+
+      const monthlyQuery = applyFilters(
+        supabaseAdmin
+          .from("demands")
+          .select(DELIVERY_SUMMARY_SELECT)
+          .gte("created_at", monthStart.toISOString())
+          .lt("created_at", nextMonthStart.toISOString()),
+        { skipStatusParam: true },
+      );
+
+      const { data: monthlyRowsRaw, error: monthlyError } = await monthlyQuery;
+      const monthlyRows = (monthlyRowsRaw || []) as {
+        id: number;
+        status: string | null;
+        fields: unknown;
+        created_at: string | null;
+        finished_at: string | null;
+      }[];
+
+      let monthlyCreated = 0;
+      let monthlyCompleted = 0;
+      let monthlyMaterialCount = 0;
+      let monthlyImageMaterialCount = 0;
+      let monthlyVideoMaterialCount = 0;
+      let monthlyPageCount = 0;
+      let monthlyTotalCycleDays = 0;
+      let monthlyCycleCount = 0;
+
+      if (monthlyError) {
+        console.error("[api/demands] monthly delivery summary error", monthlyError);
+      } else {
+        monthlyCreated = monthlyRows.length;
+        for (const row of monthlyRows) {
+          const deliveryCounts = inferDemandDeliveryCounts(row.fields);
+          monthlyMaterialCount += deliveryCounts.materialCount;
+          monthlyImageMaterialCount += deliveryCounts.imageMaterialCount;
+          monthlyVideoMaterialCount += deliveryCounts.videoMaterialCount;
+          monthlyPageCount += deliveryCounts.pageCount;
+
+          const status = (row.status || "").toLowerCase();
+          if (statusGroups.completed.includes(status)) {
+            monthlyCompleted += 1;
+            if (row.created_at && row.finished_at) {
+              const createdAt = new Date(row.created_at).getTime();
+              const finishedAt = new Date(row.finished_at).getTime();
+              if (Number.isFinite(createdAt) && Number.isFinite(finishedAt) && finishedAt >= createdAt) {
+                monthlyTotalCycleDays += (finishedAt - createdAt) / (1000 * 60 * 60 * 24);
+                monthlyCycleCount += 1;
+              }
+            }
+          }
+        }
+      }
+
       return NextResponse.json({
         items,
         page: 1,
@@ -824,6 +885,16 @@ export async function GET(req: NextRequest) {
           pending: pendingSummary,
           in_progress: inProgressSummary,
           done: doneSummary,
+        },
+        deliverySummary: {
+          period: `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`,
+          created: monthlyCreated,
+          completed: monthlyCompleted,
+          materialCount: monthlyMaterialCount,
+          imageMaterialCount: monthlyImageMaterialCount,
+          videoMaterialCount: monthlyVideoMaterialCount,
+          pageCount: monthlyPageCount,
+          avgCycleDays: monthlyCycleCount > 0 ? monthlyTotalCycleDays / monthlyCycleCount : 0,
         },
       });
     }
