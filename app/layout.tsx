@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
+import ChunkLoadRecovery from "./ChunkLoadRecovery";
 
 async function loadSystemName(): Promise<string> {
   const fallback = "Iwish需求管理系统";
@@ -41,7 +42,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <ChunkLoadRecovery />
+        {children}
+      </body>
     </html>
   );
 }
