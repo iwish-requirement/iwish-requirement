@@ -16,8 +16,10 @@ export interface ClientBusinessUser {
 }
 
 const CACHE_KEY = "businessUser:cached";
+const CACHE_TTL_MS = 60 * 1000;
 
 let memoryCache: ClientBusinessUser | null = null;
+let memoryCacheAt = 0;
 let inflight: Promise<ClientBusinessUser | null> | null = null;
 
 function readSessionCache(): ClientBusinessUser | null {
@@ -25,7 +27,12 @@ function readSessionCache(): ClientBusinessUser | null {
   try {
     const raw = window.sessionStorage.getItem(CACHE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as ClientBusinessUser;
+    const parsed = JSON.parse(raw) as { user?: ClientBusinessUser | null; cachedAt?: number };
+    if (!parsed || typeof parsed.cachedAt !== "number" || Date.now() - parsed.cachedAt > CACHE_TTL_MS) {
+      window.sessionStorage.removeItem(CACHE_KEY);
+      return null;
+    }
+    return parsed.user ?? null;
   } catch {
     return null;
   }
@@ -38,7 +45,7 @@ function writeSessionCache(user: ClientBusinessUser | null) {
       window.sessionStorage.removeItem(CACHE_KEY);
       return;
     }
-    window.sessionStorage.setItem(CACHE_KEY, JSON.stringify(user));
+    window.sessionStorage.setItem(CACHE_KEY, JSON.stringify({ user, cachedAt: Date.now() }));
   } catch {
     // ignore cache write errors
   }
@@ -49,7 +56,7 @@ export async function loadClientBusinessUser(
 ): Promise<ClientBusinessUser | null> {
   const force = options?.force === true;
 
-  if (!force && memoryCache) {
+  if (!force && memoryCache && Date.now() - memoryCacheAt <= CACHE_TTL_MS) {
     return memoryCache;
   }
 
@@ -57,6 +64,7 @@ export async function loadClientBusinessUser(
     const cached = readSessionCache();
     if (cached) {
       memoryCache = cached;
+      memoryCacheAt = Date.now();
       return cached;
     }
   }
@@ -100,6 +108,7 @@ export async function loadClientBusinessUser(
       const json = await res.json();
       const user = ((json.user || {}) as ClientBusinessUser) || null;
       memoryCache = user;
+      memoryCacheAt = Date.now();
       writeSessionCache(user);
       return user;
     } catch (error) {
@@ -115,5 +124,6 @@ export async function loadClientBusinessUser(
 
 export function clearClientBusinessUserCache() {
   memoryCache = null;
+  memoryCacheAt = 0;
   writeSessionCache(null);
 }

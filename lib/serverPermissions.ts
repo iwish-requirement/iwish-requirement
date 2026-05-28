@@ -8,6 +8,31 @@ import { ensureActiveUser } from "./serverAuth";
 const PERMISSION_CACHE_TTL_MS = 60 * 1000;
 const permissionCache = new Map<number, { permissions: PermissionKey[]; expiresAt: number }>();
 
+function loadRoleBaselinePermissions(user: BusinessUser): PermissionKey[] {
+  if (user.role === "admin") {
+    return Object.keys(PERMISSIONS) as PermissionKey[];
+  }
+
+  if (user.role === "manager") {
+    return [
+      "demand.view_department",
+      "demand.create",
+      "demand.edit",
+      "stats.view",
+      "stats.overview",
+      "stats.department_members",
+      "stats.dynamic_fields",
+      "stats.scores",
+      "settings.departments.view",
+      "settings.departments.manage",
+      "settings.fields.view",
+      "department.fields_manage",
+    ];
+  }
+
+  return [];
+}
+
 async function loadDbPermissionsForUser(userId: number): Promise<PermissionKey[]> {
   const cached = permissionCache.get(userId);
   if (cached && cached.expiresAt > Date.now()) {
@@ -65,6 +90,17 @@ async function loadDbPermissionsForUser(userId: number): Promise<PermissionKey[]
         if (key === "settings.access_shell") {
           return ["settings.access_shell"];
         }
+        if (key === "settings.departments.manage") {
+          return [
+            "settings.departments.view",
+            "settings.departments.manage",
+            "stats.view",
+            "stats.overview",
+            "stats.department_members",
+            "stats.dynamic_fields",
+            "stats.scores",
+          ];
+        }
         if (key === "department.fields_manage") {
           return ["settings.fields.view", "department.fields_manage"];
         }
@@ -103,7 +139,7 @@ async function loadDbPermissionsForUser(userId: number): Promise<PermissionKey[]
 
 export async function loadEffectivePermissionsForUser(user: BusinessUser): Promise<PermissionKey[]> {
   const dbPermissions = await loadDbPermissionsForUser(user.id);
-  return dbPermissions;
+  return Array.from(new Set([...loadRoleBaselinePermissions(user), ...dbPermissions]));
 }
 
 
