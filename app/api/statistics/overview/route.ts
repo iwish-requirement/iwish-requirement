@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest } from "../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../lib/serverPermissions";
 import { buildDemandStatusGroups } from "../../../../lib/demandStatusGroups";
+import { resolveStatsScopeForUser } from "../../../../lib/statScope";
 
 
 export const runtime = "edge";
@@ -56,24 +57,17 @@ export async function GET(req: NextRequest) {
 
     const url = new URL(req.url);
     const periodParam = url.searchParams.get("period");
-    const departmentIdParam = url.searchParams.get("departmentId");
-
     const normalizedPeriod = periodParam && /^\d{4}-\d{2}$/.test(periodParam.trim())
       ? periodParam.trim()
       : null;
 
     const { from, to } = parsePeriodToRange(normalizedPeriod);
 
-    let scope: OverviewScope = "company";
-    let departmentId: number | null = null;
-
-    if (departmentIdParam && departmentIdParam.trim() && departmentIdParam.trim() !== "all") {
-      const parsed = Number.parseInt(departmentIdParam.trim(), 10);
-      if (Number.isFinite(parsed) && parsed > 0) {
-        scope = "department";
-        departmentId = parsed;
-      }
+    const scopeResult = resolveStatsScopeForUser(authResult.user, url.searchParams.get("departmentId"));
+    if (scopeResult.errorResponse) {
+      return scopeResult.errorResponse;
     }
+    const { scope, departmentId } = scopeResult.scope!;
 
     const { data: departmentRows, error: departmentError } = await supabaseAdmin
       .from("departments")

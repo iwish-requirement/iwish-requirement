@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest } from "../../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../../lib/serverPermissions";
+import { resolveStatsScopeForUser } from "../../../../../lib/statScope";
 
 import { DepartmentDynamicFieldStats, FieldDefinition } from "../../../../../types";
 
@@ -114,7 +115,14 @@ export async function GET(req: NextRequest) {
       return result.errorResponse;
     }
 
-    const departmentId = result.departmentId as number;
+    const scopeResult = resolveStatsScopeForUser(authResult.user, departmentIdParam, {
+      requireDepartment: true,
+    });
+    if (scopeResult.errorResponse) {
+      return scopeResult.errorResponse;
+    }
+
+    const departmentId = scopeResult.scope!.departmentId!;
 
     const [deptResult, tplResult, fieldsResult] = await Promise.all([
       supabaseAdmin

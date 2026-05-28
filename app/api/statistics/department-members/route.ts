@@ -4,6 +4,7 @@ import { getBusinessUserFromRequest } from "../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../lib/serverPermissions";
 import { buildDemandStatusGroups } from "../../../../lib/demandStatusGroups";
 import { inferDemandDeliveryCounts } from "../../../../lib/demandDeliveryStats";
+import { resolveStatsScopeForUser } from "../../../../lib/statScope";
 
 
 export const runtime = "edge";
@@ -76,21 +77,13 @@ export async function GET(req: NextRequest) {
     const periodParam = url.searchParams.get("period");
     const departmentIdParam = url.searchParams.get("departmentId");
 
-    if (!departmentIdParam || !departmentIdParam.trim()) {
-      return NextResponse.json(
-        { error: "invalid_department_id", detail: "departmentId 是必填参数" },
-        { status: 400 },
-      );
+    const scopeResult = resolveStatsScopeForUser(authResult.user, departmentIdParam, {
+      requireDepartment: true,
+    });
+    if (scopeResult.errorResponse) {
+      return scopeResult.errorResponse;
     }
-
-    const parsedDeptId = Number.parseInt(departmentIdParam.trim(), 10);
-    if (!Number.isFinite(parsedDeptId) || parsedDeptId <= 0) {
-      return NextResponse.json(
-        { error: "invalid_department_id", detail: "departmentId 必须是正整数" },
-        { status: 400 },
-      );
-    }
-    const departmentId = parsedDeptId;
+    const departmentId = scopeResult.scope!.departmentId!;
 
     const normalizedPeriod = periodParam && /^\d{4}-\d{2}$/.test(periodParam.trim())
       ? periodParam.trim()

@@ -18,6 +18,7 @@ import {
 } from "recharts";
 import { Download } from "lucide-react";
 import { authorizedFetch } from "../../../lib/authFetch";
+import { loadClientBusinessUser, type ClientBusinessUser } from "../../../lib/clientBusinessUser";
 import DynamicFieldStatisticsSection from "./DynamicFieldStatisticsSection";
 
 const COLORS = ["#2563EB", "#7C3AED", "#DB2777", "#F59E0B"];
@@ -135,6 +136,8 @@ function formatPeriodTitle(period: string | null): string {
 }
 
 export default function StatsPage() {
+  const [currentUser, setCurrentUser] = useState<ClientBusinessUser | null>(null);
+  const [currentUserLoaded, setCurrentUserLoaded] = useState(false);
   const [scoreStats, setScoreStats] = useState<ScoreUserStat[]>([]);
   const [loadingScores, setLoadingScores] = useState(false);
   const [errorScores, setErrorScores] = useState<string | null>(null);
@@ -172,12 +175,56 @@ export default function StatsPage() {
   useEffect(() => {
     let cancelled = false;
 
+    const loadCurrentUser = async () => {
+      const user = await loadClientBusinessUser();
+      if (!cancelled) {
+        setCurrentUser(user);
+        setCurrentUserLoaded(true);
+      }
+    };
+
+    loadCurrentUser();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const canViewCompanyStats = currentUser?.role === "admin";
+  const ownDepartmentId = currentUser?.departmentId ? String(currentUser.departmentId) : "";
+  const availableDepartments = canViewCompanyStats
+    ? departments
+    : departments.filter((dept) => String(dept.id) === ownDepartmentId);
+
+  useEffect(() => {
+    if (!currentUserLoaded || canViewCompanyStats || !ownDepartmentId) {
+      return;
+    }
+    if (selectedDeptId !== ownDepartmentId) {
+      setSelectedDeptId(ownDepartmentId);
+    }
+  }, [canViewCompanyStats, currentUserLoaded, ownDepartmentId, selectedDeptId]);
+
+  useEffect(() => {
+    if (!currentUserLoaded) {
+      return;
+    }
+
+    let cancelled = false;
+
     const loadScoreStats = async () => {
       try {
         setLoadingScores(true);
         setErrorScores(null);
-        const query = selectedPeriod ? `?period=${encodeURIComponent(selectedPeriod)}` : "";
-        const res = await authorizedFetch(`/api/scores/statistics${query}`);
+        const params = new URLSearchParams();
+        if (selectedPeriod) {
+          params.set("period", selectedPeriod);
+        }
+        if (selectedDeptId && selectedDeptId !== "all") {
+          params.set("departmentId", selectedDeptId);
+        }
+        const qs = params.toString();
+        const res = await authorizedFetch(`/api/scores/statistics${qs ? `?${qs}` : ""}`);
         if (!res.ok) {
           const text = await res.text();
           console.error("load score statistics error", text);
@@ -225,7 +272,7 @@ export default function StatsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedPeriod]);
+  }, [currentUserLoaded, selectedDeptId, selectedPeriod]);
 
   const titleText = formatPeriodTitle(selectedPeriod);
 
@@ -233,6 +280,10 @@ export default function StatsPage() {
     let cancelled = false;
 
     const loadOverview = async () => {
+      if (!currentUserLoaded) {
+        return;
+      }
+
       try {
         setLoadingOverview(true);
         setErrorOverview(null);
@@ -301,13 +352,16 @@ export default function StatsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedDeptId, selectedPeriod]);
+  }, [currentUserLoaded, selectedDeptId, selectedPeriod]);
 
 
   useEffect(() => {
     let cancelled = false;
 
     const loadMemberStats = async () => {
+      if (!currentUserLoaded) {
+        return;
+      }
       if (selectedDeptId === "all") {
         setMemberStats([]);
         return;
@@ -354,7 +408,7 @@ export default function StatsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedDeptId, selectedPeriod]);
+  }, [currentUserLoaded, selectedDeptId, selectedPeriod]);
 
   const filteredStats = React.useMemo(
     () => {
@@ -386,6 +440,9 @@ export default function StatsPage() {
       params.set("targetUserId", String(item.targetUserId));
       if (selectedPeriod) {
         params.set("period", selectedPeriod);
+      }
+      if (selectedDeptId && selectedDeptId !== "all") {
+        params.set("departmentId", selectedDeptId);
       }
       const res = await authorizedFetch(`/api/scores/user-detail?${params.toString()}`);
       if (!res.ok) {
@@ -460,8 +517,8 @@ export default function StatsPage() {
               className="px-3 py-1.5 text-xs border border-slate-200 rounded-full bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
 
-              <option value="all">全公司</option>
-              {departments.map((dept) => (
+              {canViewCompanyStats && <option value="all">全公司</option>}
+              {availableDepartments.map((dept) => (
                 <option key={dept.id} value={String(dept.id)}>
                   {dept.name}
                 </option>

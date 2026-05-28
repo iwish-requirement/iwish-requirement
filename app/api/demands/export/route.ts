@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest, ensureActiveUser } from "../../../../lib/serverAuth";
+import { resolveStatsScopeForUser } from "../../../../lib/statScope";
 import { DemandStatus, Demand, Priority } from "../../../../types";
 
 export const runtime = "edge";
@@ -148,13 +149,14 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    if (departmentIdParam) {
-      const asNumber = Number.parseInt(departmentIdParam, 10);
-      if (!Number.isNaN(asNumber)) {
-        query = query.eq("department_id", asNumber);
-      } else {
-        query = query.eq("fields->>departmentKey", departmentIdParam);
-      }
+    const scopeResult = resolveStatsScopeForUser(authResult.user, departmentIdParam);
+    if (scopeResult.errorResponse) {
+      return scopeResult.errorResponse;
+    }
+    const scopedDepartmentId = scopeResult.scope!.departmentId;
+
+    if (scopedDepartmentId !== null) {
+      query = query.eq("department_id", scopedDepartmentId);
     }
 
     if (creatorCode) {
