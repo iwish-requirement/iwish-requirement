@@ -128,6 +128,7 @@ export function useDemandDetailBootstrap(id: string) {
               priorities: [...config.priorities].sort((a, b) => a.order - b.order),
               statuses: [...config.statuses].sort((a, b) => a.order - b.order),
               rules: config.rules,
+              stats: config.stats,
             });
           } else {
             setWorkflowConfig(null);
