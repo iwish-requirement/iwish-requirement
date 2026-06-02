@@ -25,6 +25,67 @@ interface DepartmentMemberStat {
   scoreCount: number;
 }
 
+interface MemberStatsMeta {
+  scoringEnabled: boolean;
+  deliveryColumns: {
+    materialCount: boolean;
+    imageMaterialCount: boolean;
+    videoMaterialCount: boolean;
+    pageCount: boolean;
+  };
+}
+
+function hasValidScoreItems(rawItems: unknown): boolean {
+  if (!Array.isArray(rawItems)) {
+    return false;
+  }
+  return rawItems.some((item) => {
+    const label = (item as any)?.label;
+    return typeof label === "string" && label.trim().length > 0;
+  });
+}
+
+function hasAnyFieldKey(fieldKeys: Set<string>, candidates: string[]): boolean {
+  return candidates.some((key) => fieldKeys.has(key.toLowerCase()));
+}
+
+function buildMemberStatsMeta(
+  fieldRows: { key: string | null }[],
+  scoreTemplate: { items?: unknown } | null,
+): MemberStatsMeta {
+  const fieldKeys = new Set(
+    fieldRows
+      .map((field) => (field.key || "").toString().trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+  const hasImageMaterialCount = hasAnyFieldKey(fieldKeys, [
+    "material_count",
+    "materialcount",
+    "materials_count",
+    "asset_count",
+    "assetcount",
+    "image_count",
+    "imagecount",
+    "source_materials",
+    "sourcematerials",
+    "assets",
+    "materials",
+  ]);
+  const hasVideoMaterialCount = hasAnyFieldKey(fieldKeys, ["video_count", "videocount"]);
+  const hasPageCount = hasAnyFieldKey(fieldKeys, ["page_count", "pagecount"]);
+
+  return {
+    scoringEnabled: hasValidScoreItems(scoreTemplate?.items),
+    deliveryColumns: {
+      materialCount: hasImageMaterialCount || hasVideoMaterialCount,
+      imageMaterialCount: hasImageMaterialCount,
+      videoMaterialCount: hasVideoMaterialCount,
+      pageCount: hasPageCount,
+    },
+  };
+}
+
 function getPeriodFromQuery(url: URL): string {
   const periodParam = url.searchParams.get("period");
   if (periodParam && /^\d{4}-\d{2}$/.test(periodParam.trim())) {
@@ -78,7 +139,15 @@ export async function GET(req: NextRequest) {
     }
     const departmentId = scopeResult.scope!.departmentId!;
 
-    const [demandsResult, usersResult, scoreRecordsResult, departmentResult] = await Promise.all([
+    const [
+      demandsResult,
+      usersResult,
+      scoreRecordsResult,
+      departmentResult,
+      activeFieldTemplatesResult,
+      demandTypesResult,
+      scoreTemplateResult,
+    ] = await Promise.all([
       supabaseAdmin
         .from("demands")
         .select("id, assignee_id, status, created_at, finished_at, fields")
@@ -98,6 +167,24 @@ export async function GET(req: NextRequest) {
         .from("departments")
         .select("status_config")
         .eq("id", departmentId)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("department_field_templates")
+        .select("id")
+        .eq("department_id", departmentId)
+        .eq("is_active", true),
+      supabaseAdmin
+        .from("demand_types")
+        .select("field_template_id")
+        .eq("department_id", departmentId)
+        .eq("is_active", true),
+      supabaseAdmin
+        .from("score_templates")
+        .select("id, items")
+        .eq("department_id", departmentId)
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle(),
     ] as const);
 
@@ -132,6 +219,66 @@ export async function GET(req: NextRequest) {
         { status: 500 },
       );
     }
+
+    if (activeFieldTemplatesResult.error) {
+      console.error("[api/demands/stats/members] field templates query error", activeFieldTemplatesResult.error);
+      return NextResponse.json(
+        { error: "failed_to_load_department_fields", detail: activeFieldTemplatesResult.error.message },
+        { status: 500 },
+      );
+    }
+
+    if (demandTypesResult.error) {
+      console.error("[api/demands/stats/members] demand types query error", demandTypesResult.error);
+      return NextResponse.json(
+        { error: "failed_to_load_demand_types", detail: demandTypesResult.error.message },
+        { status: 500 },
+      );
+    }
+
+    if (scoreTemplateResult.error) {
+      console.error("[api/demands/stats/members] score template query error", scoreTemplateResult.error);
+      return NextResponse.json(
+        { error: "failed_to_load_score_template", detail: scoreTemplateResult.error.message },
+        { status: 500 },
+      );
+    }
+
+    const configuredTemplateIds = new Set<number>();
+    for (const template of (activeFieldTemplatesResult.data || []) as { id: number | null }[]) {
+      if (typeof template.id === "number" && template.id > 0) {
+        configuredTemplateIds.add(template.id);
+      }
+    }
+    for (const demandType of (demandTypesResult.data || []) as { field_template_id: number | null }[]) {
+      if (typeof demandType.field_template_id === "number" && demandType.field_template_id > 0) {
+        configuredTemplateIds.add(demandType.field_template_id);
+      }
+    }
+
+    let fieldRows: { key: string | null }[] = [];
+    if (configuredTemplateIds.size > 0) {
+      const { data: departmentFields, error: fieldsError } = await supabaseAdmin
+        .from("department_fields")
+        .select("key")
+        .eq("department_id", departmentId)
+        .in("template_id", Array.from(configuredTemplateIds));
+
+      if (fieldsError) {
+        console.error("[api/demands/stats/members] department fields query error", fieldsError);
+        return NextResponse.json(
+          { error: "failed_to_load_department_fields", detail: fieldsError.message },
+          { status: 500 },
+        );
+      }
+
+      fieldRows = (departmentFields || []) as { key: string | null }[];
+    }
+
+    const meta = buildMemberStatsMeta(
+      fieldRows,
+      (scoreTemplateResult.data || null) as { items?: unknown } | null,
+    );
 
     const demandRows = (demandsResult.data || []) as {
       id: number;
@@ -179,7 +326,7 @@ export async function GET(req: NextRequest) {
       role: string | null;
     }[];
 
-    const scoreRows = (scoreRecordsResult.data || []) as {
+    const scoreRows = (meta.scoringEnabled ? scoreRecordsResult.data || [] : []) as {
       target_user_id: number;
       scores: any;
       period: string;
@@ -310,7 +457,7 @@ export async function GET(req: NextRequest) {
 
     items.sort((a, b) => b.demandsCompleted - a.demandsCompleted);
 
-    return NextResponse.json({ items });
+    return NextResponse.json({ items, meta });
   } catch (error: any) {
     console.error("[api/demands/stats/members] unexpected error", error);
     return NextResponse.json(

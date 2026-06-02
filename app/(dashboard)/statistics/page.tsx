@@ -95,10 +95,30 @@ interface DepartmentMemberStat {
   scoreCount: number;
 }
 
+interface DepartmentMemberStatsMeta {
+  scoringEnabled: boolean;
+  deliveryColumns: {
+    materialCount: boolean;
+    imageMaterialCount: boolean;
+    videoMaterialCount: boolean;
+    pageCount: boolean;
+  };
+}
+
 interface DepartmentOption {
   id: number;
   name: string;
 }
+
+const EMPTY_MEMBER_STATS_META: DepartmentMemberStatsMeta = {
+  scoringEnabled: false,
+  deliveryColumns: {
+    materialCount: false,
+    imageMaterialCount: false,
+    videoMaterialCount: false,
+    pageCount: false,
+  },
+};
 
 function getPeriodOptions(): { current: string; previous: string } {
   const now = new Date();
@@ -159,6 +179,7 @@ export default function StatsPage() {
 
 
   const [memberStats, setMemberStats] = useState<DepartmentMemberStat[]>([]);
+  const [memberStatsMeta, setMemberStatsMeta] = useState<DepartmentMemberStatsMeta | null>(null);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [errorMembers, setErrorMembers] = useState<string | null>(null);
 
@@ -195,6 +216,10 @@ export default function StatsPage() {
   const availableDepartments = canViewCompanyStats
     ? departments
     : departments.filter((dept) => String(dept.id) === ownDepartmentId);
+  const memberDeliveryColumns =
+    memberStatsMeta?.deliveryColumns ?? EMPTY_MEMBER_STATS_META.deliveryColumns;
+  const scoreFeatureEnabled = selectedDeptId === "all" || Boolean(memberStatsMeta?.scoringEnabled);
+  const scoreFeatureReady = selectedDeptId === "all" || memberStatsMeta !== null;
 
   useEffect(() => {
     if (!currentUserLoaded || canViewCompanyStats || !ownDepartmentId) {
@@ -207,6 +232,45 @@ export default function StatsPage() {
 
   useEffect(() => {
     if (!currentUserLoaded) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadDepartments = async () => {
+      try {
+        const res = await authorizedFetch("/api/departments");
+        if (!res.ok) {
+          const text = await res.text();
+          console.error("load statistics departments error", text);
+          return;
+        }
+        const json = await res.json();
+        const items = (json.items || []) as { id: number; name: string }[];
+        const mapped: DepartmentOption[] = items.map((item) => ({ id: item.id, name: item.name }));
+        if (!cancelled) {
+          setDepartments(mapped);
+        }
+      } catch (e) {
+        console.error("load statistics departments error", e);
+      }
+    };
+
+    loadDepartments();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserLoaded]);
+
+  useEffect(() => {
+    if (!currentUserLoaded || !scoreFeatureReady) {
+      return;
+    }
+    if (!scoreFeatureEnabled) {
+      setScoreStats([]);
+      setErrorScores(null);
+      setLoadingScores(false);
       return;
     }
 
@@ -247,32 +311,12 @@ export default function StatsPage() {
       }
     };
 
-    const loadDepartments = async () => {
-      try {
-        const res = await authorizedFetch("/api/departments");
-        if (!res.ok) {
-          const text = await res.text();
-          console.error("load statistics departments error", text);
-          return;
-        }
-        const json = await res.json();
-        const items = (json.items || []) as { id: number; name: string }[];
-        const mapped: DepartmentOption[] = items.map((item) => ({ id: item.id, name: item.name }));
-        if (!cancelled) {
-          setDepartments(mapped);
-        }
-      } catch (e) {
-        console.error("load statistics departments error", e);
-      }
-    };
-
     loadScoreStats();
-    loadDepartments();
 
     return () => {
       cancelled = true;
     };
-  }, [currentUserLoaded, selectedDeptId, selectedPeriod]);
+  }, [currentUserLoaded, scoreFeatureEnabled, scoreFeatureReady, selectedDeptId, selectedPeriod]);
 
   const titleText = formatPeriodTitle(selectedPeriod);
 
@@ -364,11 +408,13 @@ export default function StatsPage() {
       }
       if (selectedDeptId === "all") {
         setMemberStats([]);
+        setMemberStatsMeta(null);
         return;
       }
       try {
         setLoadingMembers(true);
         setErrorMembers(null);
+        setMemberStatsMeta(null);
         const params = new URLSearchParams();
         params.set("departmentId", selectedDeptId);
         if (selectedPeriod) {
@@ -383,18 +429,24 @@ export default function StatsPage() {
           if (!cancelled) {
             setErrorMembers("加载部门成员统计失败，请稍后重试");
             setMemberStats([]);
+            setMemberStatsMeta(EMPTY_MEMBER_STATS_META);
           }
           return;
         }
-        const json = (await res.json()) as { items?: DepartmentMemberStat[] };
+        const json = (await res.json()) as {
+          items?: DepartmentMemberStat[];
+          meta?: DepartmentMemberStatsMeta;
+        };
         if (!cancelled) {
           setMemberStats(Array.isArray(json.items) ? json.items : []);
+          setMemberStatsMeta(json.meta || EMPTY_MEMBER_STATS_META);
         }
       } catch (e) {
         console.error("load member statistics error", e);
         if (!cancelled) {
           setErrorMembers("加载部门成员统计失败，请检查网络后重试");
           setMemberStats([]);
+          setMemberStatsMeta(EMPTY_MEMBER_STATS_META);
         }
       } finally {
         if (!cancelled) {
@@ -552,14 +604,16 @@ export default function StatsPage() {
               {overviewMetrics ? overviewMetrics.avgCycleDays.toFixed(1) : "--"}
             </div>
           </div>
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-            <div className="text-xs text-slate-500 mb-1">平均评分 / 覆盖率</div>
-            <div className="text-sm font-semibold text-slate-900">
-              {overviewMetrics
-                ? `${overviewMetrics.scoreAvg.toFixed(2)} 分 · ${(overviewMetrics.scoreCoverageRate * 100).toFixed(0)}%`
-                : "--"}
+          {scoreFeatureEnabled && (
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+              <div className="text-xs text-slate-500 mb-1">平均评分 / 覆盖率</div>
+              <div className="text-sm font-semibold text-slate-900">
+                {overviewMetrics
+                  ? `${overviewMetrics.scoreAvg.toFixed(2)} 分 · ${(overviewMetrics.scoreCoverageRate * 100).toFixed(0)}%`
+                  : "--"}
+              </div>
             </div>
-          </div>
+          )}
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
             <div className="text-xs text-slate-500 mb-1">响应时长（小时）</div>
             <div className="text-2xl font-bold text-blue-600">
@@ -797,13 +851,24 @@ export default function StatsPage() {
                     {/* <th className="py-2 px-4 font-medium whitespace-nowrap">角色</th> */}
                     <th className="py-2 px-4 font-medium whitespace-nowrap">负责需求数</th>
                     <th className="py-2 px-4 font-medium whitespace-nowrap">已完成需求数</th>
-                    <th className="py-2 px-4 font-medium whitespace-nowrap">素材合计</th>
-                    <th className="py-2 px-4 font-medium whitespace-nowrap">平面素材</th>
-                    <th className="py-2 px-4 font-medium whitespace-nowrap">视频数量</th>
-                    <th className="py-2 px-4 font-medium whitespace-nowrap">页面数量</th>
-                    <th className="py-2 px-4 font-medium whitespace-nowrap">平均处理天数</th>
-                    <th className="py-2 px-4 font-medium whitespace-nowrap">平均评分</th>
-                    <th className="py-2 px-4 font-medium whitespace-nowrap">评分次数</th>
+                    {memberDeliveryColumns.materialCount && (
+                      <th className="py-2 px-4 font-medium whitespace-nowrap">素材合计</th>
+                    )}
+                    {memberDeliveryColumns.imageMaterialCount && (
+                      <th className="py-2 px-4 font-medium whitespace-nowrap">平面素材</th>
+                    )}
+                    {memberDeliveryColumns.videoMaterialCount && (
+                      <th className="py-2 px-4 font-medium whitespace-nowrap">视频数量</th>
+                    )}
+                    {memberDeliveryColumns.pageCount && (
+                      <th className="py-2 px-4 font-medium whitespace-nowrap">页面数量</th>
+                    )}
+                    {scoreFeatureEnabled && (
+                      <th className="py-2 px-4 font-medium whitespace-nowrap">平均评分</th>
+                    )}
+                    {scoreFeatureEnabled && (
+                      <th className="py-2 px-4 font-medium whitespace-nowrap">评分次数</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -823,17 +888,26 @@ export default function StatsPage() {
                       */}
                       <td className="py-2 px-4 text-slate-700">{m.demandsAssignee}</td>
                       <td className="py-2 px-4 text-slate-700">{m.demandsCompleted}</td>
-                      <td className="py-2 px-4 text-slate-700">{m.materialCount ?? 0}</td>
-                      <td className="py-2 px-4 text-slate-700">{m.imageMaterialCount ?? 0}</td>
-                      <td className="py-2 px-4 text-slate-700">{m.videoMaterialCount ?? 0}</td>
-                      <td className="py-2 px-4 text-slate-700">{m.pageCount ?? 0}</td>
-                      <td className="py-2 px-4 text-slate-700">
-                        {m.demandsCompleted > 0 ? m.avgCycleDays.toFixed(1) : "-"}
-                      </td>
-                      <td className="py-2 px-4 text-slate-700">
-                        {m.scoreCount > 0 ? m.scoreAvg.toFixed(2) : "-"}
-                      </td>
-                      <td className="py-2 px-4 text-slate-700">{m.scoreCount}</td>
+                      {memberDeliveryColumns.materialCount && (
+                        <td className="py-2 px-4 text-slate-700">{m.materialCount ?? 0}</td>
+                      )}
+                      {memberDeliveryColumns.imageMaterialCount && (
+                        <td className="py-2 px-4 text-slate-700">{m.imageMaterialCount ?? 0}</td>
+                      )}
+                      {memberDeliveryColumns.videoMaterialCount && (
+                        <td className="py-2 px-4 text-slate-700">{m.videoMaterialCount ?? 0}</td>
+                      )}
+                      {memberDeliveryColumns.pageCount && (
+                        <td className="py-2 px-4 text-slate-700">{m.pageCount ?? 0}</td>
+                      )}
+                      {scoreFeatureEnabled && (
+                        <td className="py-2 px-4 text-slate-700">
+                          {m.scoreCount > 0 ? m.scoreAvg.toFixed(2) : "-"}
+                        </td>
+                      )}
+                      {scoreFeatureEnabled && (
+                        <td className="py-2 px-4 text-slate-700">{m.scoreCount}</td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -843,7 +917,8 @@ export default function StatsPage() {
         </div>
       )}
 
-      <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm">
+      {scoreFeatureEnabled && (
+        <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
           <h3 className="text-xl font-bold text-slate-900">评分统计（按被评分人平均分）</h3>
           <p className="text-xs text-slate-500">
@@ -899,7 +974,8 @@ export default function StatsPage() {
             </table>
           </div>
         )}
-      </div>
+        </div>
+      )}
 
       {detailOpen && (
         <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/40">
