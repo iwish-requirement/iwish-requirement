@@ -301,8 +301,6 @@ export async function GET(req: NextRequest) {
       demandsQuery = demandsQuery.gte("created_at", start).lt("created_at", end);
     } else if (meta.monthBasis === "finished") {
       demandsQuery = demandsQuery.gte("finished_at", start).lt("finished_at", end);
-    } else if (meta.scheduledDateFieldKey) {
-      demandsQuery = demandsQuery.not(`fields->>${meta.scheduledDateFieldKey}`, "is", null);
     }
 
     const demandsResult = await demandsQuery;

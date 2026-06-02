@@ -150,7 +150,10 @@ export function getDemandMonthBasisDate(
     return parseDemandMonthValue(demand.finished_at ?? null);
   }
   if (basis === "scheduled") {
-    return parseDemandMonthValue(getFieldValue(demand.fields, scheduledDateFieldKey));
+    return (
+      parseDemandMonthValue(getFieldValue(demand.fields, scheduledDateFieldKey)) ||
+      parseDemandMonthValue(demand.created_at ?? null)
+    );
   }
   return parseDemandMonthValue(demand.created_at ?? null);
 }
