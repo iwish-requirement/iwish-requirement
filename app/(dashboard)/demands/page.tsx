@@ -153,6 +153,9 @@ export default function DemandsPage() {
   const [previewStatusValue, setPreviewStatusValue] = useState("");
   const [previewStatusUpdating, setPreviewStatusUpdating] = useState(false);
   const [previewStatusError, setPreviewStatusError] = useState<string | null>(null);
+  const [previewScheduledStartDate, setPreviewScheduledStartDate] = useState("");
+  const [previewScheduledSaving, setPreviewScheduledSaving] = useState(false);
+  const [previewScheduledError, setPreviewScheduledError] = useState<string | null>(null);
 
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importDepartmentId, setImportDepartmentId] = useState<string>("");
@@ -299,6 +302,7 @@ export default function DemandsPage() {
         const sorted: DepartmentWorkflowConfig = {
           priorities: [...cfg.priorities].sort((a, b) => a.order - b.order),
           statuses: [...cfg.statuses].sort((a, b) => a.order - b.order),
+          stats: cfg.stats,
         };
         setWorkflowConfig(sorted);
 
@@ -858,6 +862,11 @@ export default function DemandsPage() {
     if (department?.slug === "design") return true;
     return currentUserRole === "manager";
   };
+  const canUpdatePreviewScheduledStartDate = (demand: Demand | null) => {
+    if (!demand) return false;
+    if (canAssignPreviewDemand(demand)) return true;
+    return !!currentUserId && demand.assigneeUserId === currentUserId;
+  };
   const availableRelationshipViews = React.useMemo(() => {
     const views: Array<{ key: "all" | "created" | "assigned"; label: string }> = [];
     if (canViewAllDemands || canViewDepartmentDemands) {
@@ -896,6 +905,16 @@ export default function DemandsPage() {
       label: status.label,
     }));
   }, [allStatusOptions, previewDemand, previewWorkflowConfig]);
+  const previewScheduledDateFieldKey = previewWorkflowConfig?.stats?.scheduledDateFieldKey || "";
+  const previewCurrentScheduledStartDate = previewScheduledDateFieldKey
+    ? String((previewDemand?.customFields || {})[previewScheduledDateFieldKey] || "").slice(0, 10)
+    : "";
+  const showPreviewScheduledStartDate = Boolean(previewScheduledDateFieldKey);
+
+  useEffect(() => {
+    setPreviewScheduledStartDate(previewCurrentScheduledStartDate);
+    setPreviewScheduledError(null);
+  }, [previewCurrentScheduledStartDate, previewDemand?.id]);
 
 
   const maxPage = Math.max(1, Math.ceil(total / pageSize));
@@ -1023,6 +1042,46 @@ export default function DemandsPage() {
     }
   };
 
+  const handlePreviewScheduledStartDateSave = async () => {
+    if (!previewDemand || !previewScheduledDateFieldKey || previewScheduledSaving) {
+      return;
+    }
+    try {
+      setPreviewScheduledSaving(true);
+      setPreviewScheduledError(null);
+      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(previewDemand.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customFields: {
+            [previewScheduledDateFieldKey]: previewScheduledStartDate || null,
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("update preview scheduled start date error", text);
+        setPreviewScheduledError("排期日期保存失败，请稍后重试");
+        return;
+      }
+
+      const json = await res.json();
+      const updatedDemand = json.demand as Demand | undefined;
+      if (!updatedDemand) return;
+
+      setDemands((prev) =>
+        prev.map((demand) => (demand.id === updatedDemand.id ? updatedDemand : demand)),
+      );
+      setPreviewDemand(updatedDemand);
+    } catch (e) {
+      console.error("update preview scheduled start date error", e);
+      setPreviewScheduledError("排期日期保存失败，请检查网络后重试");
+    } finally {
+      setPreviewScheduledSaving(false);
+    }
+  };
+
   const openDemandPreview = (demand: Demand) => {
     setPreviewDemand(demand);
     setPreviewAssigneeEmail("");
@@ -1077,6 +1136,8 @@ export default function DemandsPage() {
             setPreviewWorkflowConfig({
               priorities: [...cfg.priorities].sort((a, b) => a.order - b.order),
               statuses: [...cfg.statuses].sort((a, b) => a.order - b.order),
+              rules: cfg.rules,
+              stats: cfg.stats,
             });
           }
         }
@@ -1187,7 +1248,11 @@ export default function DemandsPage() {
       "dueDate",
       "description",
       "code",
+      "scheduled_start_date",
     ]);
+    if (previewScheduledDateFieldKey) {
+      hiddenKeys.add(previewScheduledDateFieldKey);
+    }
     return Object.entries(demand.customFields)
       .filter(([key]) => !hiddenKeys.has(key))
       .map(([key, value]) => ({
@@ -2504,6 +2569,58 @@ export default function DemandsPage() {
                   </div>
                 )}
               </section>
+
+              {showPreviewScheduledStartDate && (
+                <section className="mt-5">
+                  <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-900">
+                    <Calendar className="h-4 w-4 text-blue-600" />
+                    内部排期
+                  </div>
+                  {canUpdatePreviewScheduledStartDate(previewDemand) ? (
+                    <div className="rounded-xl border border-slate-200 bg-white p-3">
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <label className="min-w-0 flex-1">
+                          <span className="mb-1 block text-xs font-semibold text-slate-500">
+                            排期开始日期
+                          </span>
+                          <input
+                            type="date"
+                            value={previewScheduledStartDate}
+                            onChange={(e) => {
+                              setPreviewScheduledStartDate(e.target.value);
+                              setPreviewScheduledError(null);
+                            }}
+                            disabled={previewScheduledSaving || previewWorkflowLoading}
+                            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={handlePreviewScheduledStartDateSave}
+                          disabled={
+                            previewScheduledSaving ||
+                            previewWorkflowLoading ||
+                            previewScheduledStartDate === previewCurrentScheduledStartDate
+                          }
+                          className="self-end rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {previewScheduledSaving ? "保存中..." : "保存"}
+                        </button>
+                      </div>
+                      {previewScheduledError && (
+                        <div className="mt-2 text-xs text-rose-600">{previewScheduledError}</div>
+                      )}
+                      <div className="mt-2 text-xs text-slate-400">
+                        该日期用于创意部成员统计的排期月份归属。
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                      {previewCurrentScheduledStartDate || "-"}
+                    </div>
+                  )}
+                </section>
+              )}
 
               <section className="mt-5">
                 <div className="mb-2 text-sm font-bold text-slate-900">流转状态</div>
