@@ -9,6 +9,7 @@ import {
 import { sendWecomAppTextMessage } from "../../../../lib/wecomApp";
 import { buildDemandStatusGroups, type DemandStatusGroups } from "../../../../lib/demandStatusGroups";
 import { loadEffectivePermissionsForUser } from "../../../../lib/serverPermissions";
+import { findInternalDemandFieldKeysInPayload } from "../../../../lib/internalDemandFields";
 
 export const runtime = "edge";
 
@@ -462,6 +463,17 @@ export async function PATCH(
       authResult.user?.role === "admin" ||
       (isDesignDepartment && isSameDepartmentMember) ||
       (authResult.user?.role === "manager" && isSameDepartmentMember);
+    const isCurrentAssignee =
+      typeof existing.assignee_id === "number" && existing.assignee_id === authResult.user?.id;
+    const canUpdateInternalFields = canAssignDemand || isCurrentAssignee;
+
+    const internalFieldKeys = findInternalDemandFieldKeysInPayload(customFields, department as any);
+    if (internalFieldKeys.length > 0 && !canUpdateInternalFields) {
+      return NextResponse.json(
+        { error: "forbidden", detail: "only assignees, admins, or department managers can update internal demand fields" },
+        { status: 403 },
+      );
+    }
 
     if (description !== undefined) {
       fields.description = description;

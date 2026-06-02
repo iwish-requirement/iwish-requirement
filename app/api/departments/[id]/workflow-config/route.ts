@@ -57,6 +57,24 @@ export async function GET(
     statuses: (dept.status_config as StatusConfig[]) || [],
     rules: resolveDepartmentDemandRules((dept as any).config, (dept as any).slug),
   };
+  const departmentConfig = (dept as any).config && typeof (dept as any).config === "object"
+    ? ((dept as any).config as Record<string, any>)
+    : {};
+  const statsConfig = departmentConfig.stats && typeof departmentConfig.stats === "object"
+    ? (departmentConfig.stats as Record<string, any>)
+    : departmentConfig.statsConfig && typeof departmentConfig.statsConfig === "object"
+      ? (departmentConfig.statsConfig as Record<string, any>)
+      : null;
+
+  if (statsConfig) {
+    config.stats = {
+      defaultMemberMonthBasis: statsConfig.defaultMemberMonthBasis,
+      scheduledDateFieldKey:
+        typeof statsConfig.scheduledDateFieldKey === "string"
+          ? statsConfig.scheduledDateFieldKey
+          : null,
+    };
+  }
 
   return NextResponse.json(
     {

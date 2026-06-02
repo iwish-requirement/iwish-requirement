@@ -7,6 +7,7 @@ import {
   resolveAssignedStatusValue,
   resolveDepartmentDemandRules,
 } from "../../../../../../lib/departmentDemandRules";
+import { sanitizeRequesterCustomFields } from "../../../../../../lib/internalDemandFields";
 
 export const runtime = "edge";
 
@@ -80,9 +81,9 @@ export async function POST(
       ? rules.unassignedStatus || "unassigned"
       : resolveAssignedStatusValue(rules, (((department as any).status_config as any[]) || []));
     const code = makeDemandCode();
-    const mergedCustomFields = {
+    const mergedCustomFields = sanitizeRequesterCustomFields({
       ...((payload.customFields || {}) as Record<string, any>),
-    };
+    }, department as any);
     const customerName = ((payload.customerName as string | undefined) || "").trim();
     const projectName = ((payload.projectName as string | undefined) || "").trim();
     if (customerName) mergedCustomFields["客户"] = customerName;

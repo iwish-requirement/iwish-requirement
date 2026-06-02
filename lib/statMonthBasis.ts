@@ -53,9 +53,7 @@ export function findScheduledDateFieldKey(fieldKeys: Iterable<string>, preferred
   const preferred = pickString(preferredKey);
   if (preferred) {
     const matchedPreferred = normalizedFieldKeys.get(preferred.toLowerCase());
-    if (matchedPreferred) {
-      return matchedPreferred;
-    }
+    return matchedPreferred || preferred;
   }
 
   for (const candidate of SCHEDULED_DATE_FIELD_KEYS) {
