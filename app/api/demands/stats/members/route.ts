@@ -5,6 +5,12 @@ import { ensureHasPermission } from "../../../../../lib/serverPermissions";
 import { buildDemandStatusGroups } from "../../../../../lib/demandStatusGroups";
 import { inferDemandDeliveryCounts } from "../../../../../lib/demandDeliveryStats";
 import { resolveStatsScopeForUser } from "../../../../../lib/statScope";
+import {
+  getStatsMonthBasisLabel,
+  isDemandInMonthRange,
+  resolveDepartmentStatsMonthConfig,
+  type StatsMonthBasis,
+} from "../../../../../lib/statMonthBasis";
 
 
 export const runtime = "edge";
@@ -27,6 +33,10 @@ interface DepartmentMemberStat {
 
 interface MemberStatsMeta {
   scoringEnabled: boolean;
+  monthBasis: StatsMonthBasis;
+  monthBasisLabel: string;
+  scheduledDateFieldKey: string | null;
+  scheduledEnabled: boolean;
   deliveryColumns: {
     materialCount: boolean;
     imageMaterialCount: boolean;
@@ -52,6 +62,11 @@ function hasAnyFieldKey(fieldKeys: Set<string>, candidates: string[]): boolean {
 function buildMemberStatsMeta(
   fieldRows: { key: string | null }[],
   scoreTemplate: { items?: unknown } | null,
+  monthConfig: {
+    defaultMemberMonthBasis: StatsMonthBasis;
+    scheduledDateFieldKey: string | null;
+    scheduledEnabled: boolean;
+  },
 ): MemberStatsMeta {
   const fieldKeys = new Set(
     fieldRows
@@ -77,6 +92,10 @@ function buildMemberStatsMeta(
 
   return {
     scoringEnabled: hasValidScoreItems(scoreTemplate?.items),
+    monthBasis: monthConfig.defaultMemberMonthBasis,
+    monthBasisLabel: getStatsMonthBasisLabel(monthConfig.defaultMemberMonthBasis),
+    scheduledDateFieldKey: monthConfig.scheduledDateFieldKey,
+    scheduledEnabled: monthConfig.scheduledEnabled,
     deliveryColumns: {
       materialCount: hasImageMaterialCount || hasVideoMaterialCount,
       imageMaterialCount: hasImageMaterialCount,
@@ -140,7 +159,6 @@ export async function GET(req: NextRequest) {
     const departmentId = scopeResult.scope!.departmentId!;
 
     const [
-      demandsResult,
       usersResult,
       scoreRecordsResult,
       departmentResult,
@@ -148,12 +166,6 @@ export async function GET(req: NextRequest) {
       demandTypesResult,
       scoreTemplateResult,
     ] = await Promise.all([
-      supabaseAdmin
-        .from("demands")
-        .select("id, assignee_id, status, created_at, finished_at, fields")
-        .eq("department_id", departmentId)
-        .gte("created_at", start)
-        .lt("created_at", end),
       supabaseAdmin
         .from("users")
         .select("id, name, email, role")
@@ -165,7 +177,7 @@ export async function GET(req: NextRequest) {
         .eq("department_id", departmentId),
       supabaseAdmin
         .from("departments")
-        .select("status_config")
+        .select("name, slug, config, status_config")
         .eq("id", departmentId)
         .maybeSingle(),
       supabaseAdmin
@@ -187,14 +199,6 @@ export async function GET(req: NextRequest) {
         .limit(1)
         .maybeSingle(),
     ] as const);
-
-    if (demandsResult.error) {
-      console.error("[api/demands/stats/members] demands query error", demandsResult.error);
-      return NextResponse.json(
-        { error: "failed_to_load_demands", detail: demandsResult.error.message },
-        { status: 500 },
-      );
-    }
 
     if (usersResult.error) {
       console.error("[api/demands/stats/members] users query error", usersResult.error);
@@ -278,16 +282,49 @@ export async function GET(req: NextRequest) {
     const meta = buildMemberStatsMeta(
       fieldRows,
       (scoreTemplateResult.data || null) as { items?: unknown } | null,
+      resolveDepartmentStatsMonthConfig(
+        (departmentResult.data || null) as {
+          name?: string | null;
+          slug?: string | null;
+          config?: unknown;
+        } | null,
+        fieldRows.map((field) => field.key || ""),
+      ),
     );
 
-    const demandRows = (demandsResult.data || []) as {
+    let demandsQuery = supabaseAdmin
+      .from("demands")
+      .select("id, assignee_id, status, created_at, finished_at, fields")
+      .eq("department_id", departmentId);
+
+    if (meta.monthBasis === "created") {
+      demandsQuery = demandsQuery.gte("created_at", start).lt("created_at", end);
+    } else if (meta.monthBasis === "finished") {
+      demandsQuery = demandsQuery.gte("finished_at", start).lt("finished_at", end);
+    } else if (meta.scheduledDateFieldKey) {
+      demandsQuery = demandsQuery.not(`fields->>${meta.scheduledDateFieldKey}`, "is", null);
+    }
+
+    const demandsResult = await demandsQuery;
+
+    if (demandsResult.error) {
+      console.error("[api/demands/stats/members] demands query error", demandsResult.error);
+      return NextResponse.json(
+        { error: "failed_to_load_demands", detail: demandsResult.error.message },
+        { status: 500 },
+      );
+    }
+
+    const demandRows = ((demandsResult.data || []) as {
       id: number;
       assignee_id: number | null;
       status: string;
       created_at: string | null;
       finished_at: string | null;
       fields: unknown;
-    }[];
+    }[]).filter((row) => {
+      return isDemandInMonthRange(row, meta.monthBasis, meta.scheduledDateFieldKey, start, end);
+    });
 
     const demandIds = demandRows
       .map((row) => row.id)
