@@ -5,7 +5,7 @@ export const runtime = "edge";
 import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, User, MessageSquare, CheckCircle2, Edit3, ArrowRight, Copy } from 'lucide-react';
+import { ArrowLeft, User, MessageSquare, CheckCircle2, Edit3, ArrowRight, Copy, CalendarDays, Save } from 'lucide-react';
 import { hasPermission } from '../../../../lib/permissions';
 import { authorizedFetch } from '../../../../lib/authFetch';
 import { DemandStatus } from '../../../../types';
@@ -118,6 +118,9 @@ export default function DemandDetailPage() {
   const [deptUsersLoading, setDeptUsersLoading] = useState(false);
   const [assigningAssignee, setAssigningAssignee] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
+  const [draftScheduledStartDate, setDraftScheduledStartDate] = useState('');
+  const [scheduledStartSaving, setScheduledStartSaving] = useState(false);
+  const [scheduledStartError, setScheduledStartError] = useState<string | null>(null);
 
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
@@ -224,6 +227,18 @@ export default function DemandDetailPage() {
   const deptName = demand
     ? departments.find(d => d.id === demand.departmentId)?.name || 'Loading...'
     : 'Loading...';
+  const scheduledDateFieldKey = workflowConfig?.stats?.scheduledDateFieldKey || '';
+  const scheduledStartDate = scheduledDateFieldKey
+    ? String((demand?.customFields || {})[scheduledDateFieldKey] || '').slice(0, 10)
+    : '';
+  const showScheduledStartDate = Boolean(scheduledDateFieldKey);
+  const visibleTemplateFields = React.useMemo(
+    () => {
+      const hiddenFieldIds = new Set([scheduledDateFieldKey, 'scheduled_start_date'].filter(Boolean));
+      return templateFields.filter((field) => !hiddenFieldIds.has(field.id));
+    },
+    [scheduledDateFieldKey, templateFields]
+  );
 
   const canDeleteDemand =
     (currentUserRole
@@ -241,6 +256,11 @@ export default function DemandDetailPage() {
     (currentUserRole === 'admin' ||
       (isDesignDemand && isSameDepartmentMember) ||
       (currentUserRole === 'manager' && isSameDepartmentMember));
+  const isCurrentAssignee =
+    !!demand?.assigneeEmail &&
+    !!currentUserEmail &&
+    demand.assigneeEmail.toLowerCase() === currentUserEmail.toLowerCase();
+  const canUpdateScheduledStartDate = canAssignDemand || isCurrentAssignee;
 
   const normalizedStatusForFlow: DemandStatus | null =
     demand?.status === DemandStatus.DELAYED
@@ -358,6 +378,45 @@ export default function DemandDetailPage() {
     }
     setIsEditing(false);
     setSaveError(null);
+  };
+
+  useEffect(() => {
+    setDraftScheduledStartDate(scheduledStartDate);
+    setScheduledStartError(null);
+  }, [scheduledStartDate]);
+
+  const handleSaveScheduledStartDate = async () => {
+    if (!demand || !scheduledDateFieldKey || scheduledStartSaving) {
+      return;
+    }
+
+    setScheduledStartSaving(true);
+    setScheduledStartError(null);
+    try {
+      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(demand.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customFields: {
+            [scheduledDateFieldKey]: draftScheduledStartDate || null,
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        console.error('update scheduled start date error', await res.text());
+        setScheduledStartError('排期日期保存失败，请稍后重试');
+        return;
+      }
+
+      const json = await res.json();
+      setDemand(json.demand);
+    } catch (err) {
+      console.error('update scheduled start date error', err);
+      setScheduledStartError('排期日期保存失败，请检查网络后重试');
+    } finally {
+      setScheduledStartSaving(false);
+    }
   };
 
   const openImagePreview = (
@@ -692,12 +751,50 @@ export default function DemandDetailPage() {
             </div>
             
             <DemandCustomFieldsSection
-              templateFields={templateFields}
+              templateFields={visibleTemplateFields}
               isEditing={isEditing}
               demandCustomFields={demand.customFields}
               draftCustomFields={draftCustomFields}
               setDraftCustomFields={setDraftCustomFields}
             />
+
+            {showScheduledStartDate && (
+              <section className="mt-6 border-t border-slate-100 pt-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <CalendarDays className="w-4 h-4 text-slate-500" />
+                  <h3 className="text-lg font-bold text-slate-900">内部排期</h3>
+                </div>
+                {canUpdateScheduledStartDate ? (
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <label className="flex-1">
+                      <span className="block text-xs font-semibold text-slate-500 mb-1">排期开始日期</span>
+                      <input
+                        type="date"
+                        value={draftScheduledStartDate}
+                        onChange={(e) => setDraftScheduledStartDate(e.target.value)}
+                        className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleSaveScheduledStartDate}
+                      disabled={scheduledStartSaving || draftScheduledStartDate === scheduledStartDate}
+                      className="inline-flex items-center justify-center gap-1 sm:self-end px-3 py-2 text-sm font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      <Save className="w-4 h-4" />
+                      {scheduledStartSaving ? '保存中...' : '保存'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-sm text-slate-700">
+                    {scheduledStartDate || '-'}
+                  </div>
+                )}
+                {scheduledStartError && (
+                  <p className="mt-2 text-xs text-rose-600">{scheduledStartError}</p>
+                )}
+              </section>
+            )}
 
             <DemandAttachmentsSection
               attachments={attachments}

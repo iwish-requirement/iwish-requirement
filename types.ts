@@ -44,6 +44,10 @@ export interface DepartmentWorkflowConfig {
   priorities: PriorityConfig[];
   statuses: StatusConfig[];
   rules?: DepartmentDemandRules;
+  stats?: {
+    defaultMemberMonthBasis?: 'created' | 'scheduled' | 'finished';
+    scheduledDateFieldKey?: string | null;
+  };
 }
 
 export interface Department {

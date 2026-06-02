@@ -16,6 +16,7 @@ import {
   resolvePositionAccessFromRows,
   resolveCreativeDemandRole,
 } from "../../../lib/creativeDemandAccess";
+import { sanitizeRequesterCustomFields } from "../../../lib/internalDemandFields";
 
 export const runtime = "edge";
 
@@ -1207,6 +1208,8 @@ export async function POST(req: NextRequest) {
     const creatorCode = creatorEmail.split("@")[0]?.toUpperCase();
     const assigneeCode = assigneeEmail?.split("@")[0]?.toUpperCase();
 
+    const requestCustomFields = sanitizeRequesterCustomFields(customFields, dept as any);
+
     const fields = {
       code,
       description,
@@ -1216,7 +1219,7 @@ export async function POST(req: NextRequest) {
       creatorCode,
       assigneeCode,
       assigneeEmail: assigneeEmail || undefined,
-      ...customFields,
+      ...requestCustomFields,
     };
 
     if (!assigneeCode) {
@@ -1267,7 +1270,7 @@ export async function POST(req: NextRequest) {
     if (projectId) recentInputs.push({ user_id: creatorUser.id as number, input_type: "project", value: String(projectId) });
     if (demandTypeId) recentInputs.push({ user_id: creatorUser.id as number, input_type: "demand_type", value: String(demandTypeId) });
     if (dueDate) recentInputs.push({ user_id: creatorUser.id as number, input_type: "due_date", value: dueDate });
-    for (const [key, value] of Object.entries(customFields)) {
+    for (const [key, value] of Object.entries(requestCustomFields)) {
       if (typeof value === "string" && value.trim() && /url|link|站点|链接|site/i.test(key)) {
         recentInputs.push({ user_id: creatorUser.id as number, input_type: "link", value: value.trim(), metadata: { key } });
       }
