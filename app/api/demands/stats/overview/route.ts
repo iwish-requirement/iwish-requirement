@@ -164,8 +164,8 @@ export async function GET(req: NextRequest) {
         .from("demands")
         .select("created_at, assigned_at, started_at, finished_at, delayed_at", { count: "exact" })
         .in("status", statusGroups.completed)
-        .gte("created_at", start)
-        .lt("created_at", end),
+        .gte("finished_at", start)
+        .lt("finished_at", end),
       departmentId,
     );
 
@@ -207,6 +207,16 @@ export async function GET(req: NextRequest) {
       departmentId,
     );
 
+    const trendCompletedQuery = applyDepartmentFilter(
+      supabaseAdmin
+        .from("demands")
+        .select("finished_at, status")
+        .in("status", statusGroups.completed)
+        .gte("finished_at", trendStart)
+        .lt("finished_at", end),
+      departmentId,
+    );
+
     const scoreRecordsQuery = applyDepartmentFilter(
       supabaseAdmin
         .from("score_records")
@@ -235,6 +245,7 @@ export async function GET(req: NextRequest) {
       demandsDelayedResult,
       departmentShareResult,
       trendResult,
+      trendCompletedResult,
       scoreRecordsResult,
       scoreTasksResult,
       departmentsResult,
@@ -248,6 +259,7 @@ export async function GET(req: NextRequest) {
       demandsDelayedQuery,
       departmentShareQuery,
       trendQuery,
+      trendCompletedQuery,
       scoreRecordsQuery,
       scoreTasksQuery,
       departmentsQuery,
@@ -263,6 +275,7 @@ export async function GET(req: NextRequest) {
       demandsDelayedResult.error,
       departmentShareResult.error,
       trendResult.error,
+      trendCompletedResult.error,
       scoreRecordsResult.error,
       scoreTasksResult.error,
       departmentsResult.error,
@@ -424,10 +437,22 @@ export async function GET(req: NextRequest) {
         continue;
       }
       bucket.demands += 1;
-      const normalizedStatus = (row.status || "").toLowerCase();
-      if (statusGroups.completed.includes(normalizedStatus)) {
-        bucket.completed += 1;
+    }
+
+    const trendCompletedRows = (trendCompletedResult.data || []) as {
+      finished_at: string | null;
+      status: string | null;
+    }[];
+    for (const row of trendCompletedRows) {
+      if (!row.finished_at) {
+        continue;
       }
+      const monthKey = row.finished_at.slice(0, 7);
+      const bucket = trendIndexMap.get(monthKey);
+      if (!bucket) {
+        continue;
+      }
+      bucket.completed += 1;
     }
 
     const trend: TrendPoint[] = trendMonths.map((month) => {

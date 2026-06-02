@@ -97,6 +97,10 @@ interface DepartmentMemberStat {
 
 interface DepartmentMemberStatsMeta {
   scoringEnabled: boolean;
+  monthBasis: "created" | "scheduled" | "finished";
+  monthBasisLabel: string;
+  scheduledDateFieldKey: string | null;
+  scheduledEnabled: boolean;
   deliveryColumns: {
     materialCount: boolean;
     imageMaterialCount: boolean;
@@ -112,6 +116,10 @@ interface DepartmentOption {
 
 const EMPTY_MEMBER_STATS_META: DepartmentMemberStatsMeta = {
   scoringEnabled: false,
+  monthBasis: "created",
+  monthBasisLabel: "提交月份",
+  scheduledDateFieldKey: null,
+  scheduledEnabled: false,
   deliveryColumns: {
     materialCount: false,
     imageMaterialCount: false,
@@ -587,13 +595,13 @@ export default function StatsPage() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-            <div className="text-xs text-slate-500 mb-1">新增需求数</div>
+            <div className="text-xs text-slate-500 mb-1">新增需求数（提交月）</div>
             <div className="text-2xl font-bold text-slate-900">
               {overviewMetrics ? overviewMetrics.demandsCreated : "--"}
             </div>
           </div>
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-            <div className="text-xs text-slate-500 mb-1">已完成需求数</div>
+            <div className="text-xs text-slate-500 mb-1">已完成需求数（完成月）</div>
             <div className="text-2xl font-bold text-emerald-600">
               {overviewMetrics ? overviewMetrics.demandsCompleted : "--"}
             </div>
@@ -830,7 +838,14 @@ export default function StatsPage() {
       {selectedDeptId !== "all" && (
         <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-3">
-            <h3 className="text-xl font-bold text-slate-900">部门成员统计</h3>
+            <div>
+              <h3 className="text-xl font-bold text-slate-900">部门成员统计</h3>
+              {memberStatsMeta && (
+                <p className="mt-1 text-xs text-slate-500">
+                  工作量归属：{memberStatsMeta.monthBasisLabel}
+                </p>
+              )}
+            </div>
           </div>
           {errorMembers && (
             <div className="mb-3 text-xs text-rose-600 bg-rose-50 border border-rose-100 px-3 py-2 rounded-lg">

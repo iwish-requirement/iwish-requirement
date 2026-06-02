@@ -24,12 +24,21 @@ const commonWebsiteField = {
   config: { placeholder: "例如 Flowtica / 客户公司名 / 品牌名" },
 };
 
+const commonScheduleField = {
+  key: "scheduled_start_date",
+  label: "排期开始日期",
+  type: "date",
+  filterable: true,
+  orderIndex: 5,
+};
+
 const templates = [
   {
     code: "ui_design",
     name: "创意部 - UI 设计字段模板",
     version: 2026050901,
     fields: [
+      commonScheduleField,
       commonWebsiteField,
       {
         key: "customer_type",
@@ -110,6 +119,7 @@ const templates = [
     name: "创意部 - 美工素材字段模板",
     version: 2026050902,
     fields: [
+      commonScheduleField,
       commonWebsiteField,
       {
         key: "website_url",
@@ -180,6 +190,7 @@ const templates = [
     name: "创意部 - 视频剪辑字段模板",
     version: 2026050903,
     fields: [
+      commonScheduleField,
       commonWebsiteField,
       { key: "website_url", label: "网址/产品详情页", type: "url", filterable: true, orderIndex: 20 },
       {
