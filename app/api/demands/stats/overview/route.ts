@@ -4,6 +4,12 @@ import { getBusinessUserFromRequest } from "../../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../../lib/serverPermissions";
 import { buildDemandStatusGroups } from "../../../../../lib/demandStatusGroups";
 import { resolveStatsScopeForUser } from "../../../../../lib/statScope";
+import {
+  getBusinessMonthKeyFromTimestamp,
+  getBusinessMonthRange,
+  getBusinessTrendMonths,
+  getCurrentBusinessPeriod,
+} from "../../../../../lib/businessDateRange";
 
 export const runtime = "edge";
 
@@ -58,47 +64,15 @@ function getPeriodFromQuery(url: URL): string {
   if (periodParam && /^\d{4}-\d{2}$/.test(periodParam.trim())) {
     return periodParam.trim();
   }
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = `${now.getMonth() + 1}`.padStart(2, "0");
-  return `${year}-${month}`;
+  return getCurrentBusinessPeriod();
 }
 
 function getPeriodRange(period: string): { start: string; end: string } {
-  const match = /^(\d{4})-(\d{2})$/.exec(period);
-  if (!match) {
-    const now = new Date();
-    const year = now.getFullYear();
-    const monthIndex = now.getMonth();
-    const startDate = new Date(Date.UTC(year, monthIndex, 1));
-    const endDate = new Date(Date.UTC(year, monthIndex + 1, 1));
-    return { start: startDate.toISOString(), end: endDate.toISOString() };
-  }
-
-  const year = Number.parseInt(match[1], 10);
-  const monthIndex = Number.parseInt(match[2], 10) - 1;
-  const startDate = new Date(Date.UTC(year, monthIndex, 1));
-  const endDate = new Date(Date.UTC(year, monthIndex + 1, 1));
-  return { start: startDate.toISOString(), end: endDate.toISOString() };
+  return getBusinessMonthRange(period);
 }
 
 function getTrendMonths(currentPeriod: string, count: number): string[] {
-  const match = /^(\d{4})-(\d{2})$/.exec(currentPeriod);
-  if (!match) {
-    return [];
-  }
-
-  const baseYear = Number.parseInt(match[1], 10);
-  const baseMonthIndex = Number.parseInt(match[2], 10) - 1;
-
-  const months: string[] = [];
-  for (let i = count - 1; i >= 0; i -= 1) {
-    const date = new Date(Date.UTC(baseYear, baseMonthIndex - i, 1));
-    const year = date.getUTCFullYear();
-    const month = `${date.getUTCMonth() + 1}`.padStart(2, "0");
-    months.push(`${year}-${month}`);
-  }
-  return months;
+  return getBusinessTrendMonths(currentPeriod, count);
 }
 
 function formatMonthLabel(period: string): string {
@@ -148,7 +122,7 @@ export async function GET(req: NextRequest) {
 
     const statusGroups = buildDemandStatusGroups((departmentStatusRows || []) as { status_config?: unknown }[]);
     const trendMonths = getTrendMonths(period, 6);
-    const trendStart = trendMonths.length > 0 ? `${trendMonths[0]}-01T00:00:00.000Z` : start;
+    const trendStart = trendMonths.length > 0 ? getBusinessMonthRange(trendMonths[0]).start : start;
 
     const demandsCreatedQuery = applyDepartmentFilter(
       supabaseAdmin
@@ -431,7 +405,10 @@ export async function GET(req: NextRequest) {
       if (!row.created_at) {
         continue;
       }
-      const monthKey = row.created_at.slice(0, 7);
+      const monthKey = getBusinessMonthKeyFromTimestamp(row.created_at);
+      if (!monthKey) {
+        continue;
+      }
       const bucket = trendIndexMap.get(monthKey);
       if (!bucket) {
         continue;
@@ -447,7 +424,10 @@ export async function GET(req: NextRequest) {
       if (!row.finished_at) {
         continue;
       }
-      const monthKey = row.finished_at.slice(0, 7);
+      const monthKey = getBusinessMonthKeyFromTimestamp(row.finished_at);
+      if (!monthKey) {
+        continue;
+      }
       const bucket = trendIndexMap.get(monthKey);
       if (!bucket) {
         continue;

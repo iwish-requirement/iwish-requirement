@@ -3,6 +3,10 @@ import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest } from "../../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../../lib/serverPermissions";
 import { resolveStatsScopeForUser } from "../../../../../lib/statScope";
+import {
+  getBusinessDayEndExclusiveIso,
+  getBusinessDayStartIso,
+} from "../../../../../lib/businessDateRange";
 
 import { DepartmentDynamicFieldStats, FieldDefinition } from "../../../../../types";
 
@@ -105,8 +109,8 @@ export async function GET(req: NextRequest) {
     const departmentIdParam = url.searchParams.get("departmentId");
     const departmentKeyParam = url.searchParams.get("departmentKey");
     const statusParam = url.searchParams.get("status");
-    const createdFrom = url.searchParams.get("createdFrom");
-    const createdTo = url.searchParams.get("createdTo");
+    const createdFrom = getBusinessDayStartIso(url.searchParams.get("createdFrom"));
+    const createdTo = getBusinessDayEndExclusiveIso(url.searchParams.get("createdTo"));
     const dueFrom = url.searchParams.get("dueFrom");
     const dueTo = url.searchParams.get("dueTo");
 
@@ -243,7 +247,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (createdTo) {
-      query = query.lte("created_at", createdTo);
+      query = query.lt("created_at", createdTo);
     }
 
     if (dueFrom) {

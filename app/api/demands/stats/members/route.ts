@@ -11,6 +11,7 @@ import {
   resolveDepartmentStatsMonthConfig,
   type StatsMonthBasis,
 } from "../../../../../lib/statMonthBasis";
+import { getBusinessMonthRange, getCurrentBusinessPeriod } from "../../../../../lib/businessDateRange";
 
 
 export const runtime = "edge";
@@ -113,28 +114,11 @@ function getPeriodFromQuery(url: URL): string {
   if (periodParam && /^\d{4}-\d{2}$/.test(periodParam.trim())) {
     return periodParam.trim();
   }
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = `${now.getMonth() + 1}`.padStart(2, "0");
-  return `${year}-${month}`;
+  return getCurrentBusinessPeriod();
 }
 
 function getPeriodRange(period: string): { start: string; end: string } {
-  const match = /^(\d{4})-(\d{2})$/.exec(period);
-  if (!match) {
-    const now = new Date();
-    const year = now.getFullYear();
-    const monthIndex = now.getMonth();
-    const startDate = new Date(year, monthIndex, 1);
-    const endDate = new Date(year, monthIndex + 1, 1);
-    return { start: startDate.toISOString(), end: endDate.toISOString() };
-  }
-
-  const year = Number.parseInt(match[1], 10);
-  const monthIndex = Number.parseInt(match[2], 10) - 1;
-  const startDate = new Date(year, monthIndex, 1);
-  const endDate = new Date(year, monthIndex + 1, 1);
-  return { start: startDate.toISOString(), end: endDate.toISOString() };
+  return getBusinessMonthRange(period);
 }
 
 export async function GET(req: NextRequest) {

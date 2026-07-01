@@ -4,6 +4,7 @@ import { getBusinessUserFromRequest } from "../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../lib/serverPermissions";
 import { buildDemandStatusGroups } from "../../../../lib/demandStatusGroups";
 import { resolveStatsScopeForUser } from "../../../../lib/statScope";
+import { getBusinessMonthFromToRange } from "../../../../lib/businessDateRange";
 
 
 export const runtime = "edge";
@@ -16,31 +17,7 @@ interface DateRange {
 }
 
 function parsePeriodToRange(period: string | null): DateRange {
-  if (!period || !/^\d{4}-\d{2}$/.test(period.trim())) {
-    const now = new Date();
-    const year = now.getFullYear();
-    const monthIndex = now.getMonth();
-    const fromDate = new Date(Date.UTC(year, monthIndex, 1, 0, 0, 0, 0));
-    const toDate = new Date(Date.UTC(year, monthIndex + 1, 1, 0, 0, 0, 0));
-    return { from: fromDate.toISOString(), to: toDate.toISOString() };
-  }
-
-  const trimmed = period.trim();
-  const [yearStr, monthStr] = trimmed.split("-");
-  const year = Number.parseInt(yearStr, 10);
-  const monthIndex = Number.parseInt(monthStr, 10) - 1;
-  if (!Number.isFinite(year) || !Number.isFinite(monthIndex) || monthIndex < 0 || monthIndex > 11) {
-    const now = new Date();
-    const fallbackYear = now.getFullYear();
-    const fallbackMonthIndex = now.getMonth();
-    const fromDate = new Date(Date.UTC(fallbackYear, fallbackMonthIndex, 1, 0, 0, 0, 0));
-    const toDate = new Date(Date.UTC(fallbackYear, fallbackMonthIndex + 1, 1, 0, 0, 0, 0));
-    return { from: fromDate.toISOString(), to: toDate.toISOString() };
-  }
-
-  const fromDate = new Date(Date.UTC(year, monthIndex, 1, 0, 0, 0, 0));
-  const toDate = new Date(Date.UTC(year, monthIndex + 1, 1, 0, 0, 0, 0));
-  return { from: fromDate.toISOString(), to: toDate.toISOString() };
+  return getBusinessMonthFromToRange(period);
 }
 
 export async function GET(req: NextRequest) {

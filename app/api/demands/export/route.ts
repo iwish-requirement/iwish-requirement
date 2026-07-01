@@ -3,6 +3,10 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest, ensureActiveUser } from "../../../../lib/serverAuth";
 import { resolveStatsScopeForUser } from "../../../../lib/statScope";
 import { DemandStatus, Demand, Priority } from "../../../../types";
+import {
+  getBusinessDayEndExclusiveIso,
+  getBusinessDayStartIso,
+} from "../../../../lib/businessDateRange";
 
 export const runtime = "edge";
 
@@ -124,8 +128,8 @@ export async function GET(req: NextRequest) {
     const creatorUserIdParam = url.searchParams.get("creatorUserId");
     const assigneeUserIdParam = url.searchParams.get("assigneeUserId");
     const q = url.searchParams.get("q") || "";
-    const createdFrom = url.searchParams.get("createdFrom");
-    const createdTo = url.searchParams.get("createdTo");
+    const createdFrom = getBusinessDayStartIso(url.searchParams.get("createdFrom"));
+    const createdTo = getBusinessDayEndExclusiveIso(url.searchParams.get("createdTo"));
     const dueFrom = url.searchParams.get("dueFrom");
     const dueTo = url.searchParams.get("dueTo");
 
@@ -182,7 +186,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (createdTo) {
-      query = query.lte("created_at", createdTo);
+      query = query.lt("created_at", createdTo);
     }
 
     if (dueFrom) {
