@@ -13,6 +13,7 @@ import {
   Users,
   Shield,
   Activity,
+  FileSpreadsheet,
   GitBranch,
 } from "lucide-react";
 import { Department, FieldDefinition, FieldType } from "../../../types";
@@ -23,6 +24,7 @@ import { loadClientBusinessUser } from "../../../lib/clientBusinessUser";
 import UserManagementSettings from "./UserManagementSettings";
 import RolePermissionOverview from "./RolePermissionOverview";
 import WebhookSettings from "./WebhookSettings";
+import FeishuSyncSettings from "./FeishuSyncSettings";
 
 // -------------------- 类型与 Tab 定义 --------------------
 
@@ -36,6 +38,7 @@ type AdminTab =
   | "workflow"
   | "scoring"
   | "scorePeriods"
+  | "feishuSync"
   | "webhooks";
 
 // -------------------- 顶层设置页面 --------------------
@@ -107,6 +110,13 @@ export default function AdminPage() {
       );
     if (tab === "roles")
       return hasShell || can("settings.roles.view") || can("settings.roles.manage") || can("admin.user_manage");
+    if (tab === "feishuSync")
+      return (
+        hasShell ||
+        can("settings.global.manage") ||
+        can("settings.webhooks.manage") ||
+        can("settings.departments.manage")
+      );
     if (tab === "webhooks")
       return hasShell || can("settings.webhooks.view") || can("settings.webhooks.manage") || can("admin.user_manage");
     if (tab === "users") return hasShell || can("admin.user_manage");
@@ -128,6 +138,8 @@ export default function AdminPage() {
     if (tab === "scoring") return can("settings.scoring.manage") || can("admin.user_manage");
     if (tab === "scorePeriods") return can("settings.score_periods.manage") || can("admin.user_manage");
     if (tab === "roles") return can("settings.roles.manage") || can("admin.user_manage");
+    if (tab === "feishuSync")
+      return can("settings.global.manage") || can("settings.webhooks.manage") || can("settings.departments.manage");
     if (tab === "webhooks") return can("settings.webhooks.manage") || can("admin.user_manage");
     if (tab === "users") return can("admin.user_manage");
     return false;
@@ -172,6 +184,8 @@ export default function AdminPage() {
         can("settings.roles.manage") ||
         can("admin.user_manage")
       );
+    if (tab === "feishuSync")
+      return can("settings.global.manage") || can("settings.webhooks.manage") || can("settings.departments.manage");
     if (tab === "webhooks")
       return (
         can("settings.webhooks.view") ||
@@ -198,6 +212,7 @@ export default function AdminPage() {
     { id: "workflow", label: "工作流配置", icon: GitBranch },
     { id: "scoring", label: "评分模板", icon: Star },
     { id: "scorePeriods", label: "评分周期", icon: Star },
+    { id: "feishuSync", label: "飞书同步", icon: FileSpreadsheet },
     { id: "webhooks", label: "Webhook 集成", icon: Activity },
   ];
 
@@ -347,6 +362,12 @@ export default function AdminPage() {
                   </div>
                 ) : (
                   renderNoPermission("评分周期")
+                ))}
+              {activeTab === "feishuSync" &&
+                (canReadTab("feishuSync") ? (
+                  <FeishuSyncSettings canManage={canManageTab("feishuSync")} />
+                ) : (
+                  renderNoPermission("飞书同步")
                 ))}
               {activeTab === "webhooks" &&
                 (canReadTab("webhooks") ? (

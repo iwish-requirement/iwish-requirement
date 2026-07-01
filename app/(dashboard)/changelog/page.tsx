@@ -10,6 +10,7 @@ import {
   MessageSquareText,
   MousePointerClick,
   PanelRightOpen,
+  RefreshCcw,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -59,6 +60,13 @@ const releases: ReleaseNote[] = [
           "配置飞书自建应用后，首次手动同步可在云文档根目录创建“创意部需求同步表”，并返回需要回填的表格 token 和 sheet id。",
         impact: "管理员无需提前手动建表，完成授权和环境变量配置后即可初始化同步。",
         icon: CheckCircle2,
+      },
+      {
+        title: "新增手动同步入口",
+        description:
+          "系统设置新增“飞书同步”入口，管理员可以一键触发创意部需求全量刷新，并复制 Cloudflare 需要回填的表格变量。",
+        impact: "首次初始化和后续排查同步问题时，不需要打开控制台或手动调用接口。",
+        icon: RefreshCcw,
       },
     ],
   },
