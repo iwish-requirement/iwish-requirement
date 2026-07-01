@@ -87,6 +87,7 @@ interface DepartmentMemberStat {
   demandsAssignee: number;
   demandsCompleted: number;
   materialCount: number;
+  completedMaterialCount?: number;
   imageMaterialCount?: number;
   videoMaterialCount?: number;
   pageCount?: number;
@@ -103,6 +104,7 @@ interface DepartmentMemberStatsMeta {
   scheduledEnabled: boolean;
   deliveryColumns: {
     materialCount: boolean;
+    completedMaterialCount: boolean;
     imageMaterialCount: boolean;
     videoMaterialCount: boolean;
     pageCount: boolean;
@@ -122,6 +124,7 @@ const EMPTY_MEMBER_STATS_META: DepartmentMemberStatsMeta = {
   scheduledEnabled: false,
   deliveryColumns: {
     materialCount: false,
+    completedMaterialCount: false,
     imageMaterialCount: false,
     videoMaterialCount: false,
     pageCount: false,
@@ -869,6 +872,9 @@ export default function StatsPage() {
                     {memberDeliveryColumns.materialCount && (
                       <th className="py-2 px-4 font-medium whitespace-nowrap">素材合计</th>
                     )}
+                    {memberDeliveryColumns.completedMaterialCount && (
+                      <th className="py-2 px-4 font-medium whitespace-nowrap">已完成素材</th>
+                    )}
                     {memberDeliveryColumns.imageMaterialCount && (
                       <th className="py-2 px-4 font-medium whitespace-nowrap">平面素材</th>
                     )}
@@ -905,6 +911,9 @@ export default function StatsPage() {
                       <td className="py-2 px-4 text-slate-700">{m.demandsCompleted}</td>
                       {memberDeliveryColumns.materialCount && (
                         <td className="py-2 px-4 text-slate-700">{m.materialCount ?? 0}</td>
+                      )}
+                      {memberDeliveryColumns.completedMaterialCount && (
+                        <td className="py-2 px-4 text-slate-700">{m.completedMaterialCount ?? 0}</td>
                       )}
                       {memberDeliveryColumns.imageMaterialCount && (
                         <td className="py-2 px-4 text-slate-700">{m.imageMaterialCount ?? 0}</td>

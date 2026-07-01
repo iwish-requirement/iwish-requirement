@@ -46,6 +46,7 @@ interface MemberMetrics {
   demandsAssignee: number;
   demandsCompleted: number;
   materialCount: number;
+  completedMaterialCount: number;
   imageMaterialCount: number;
   videoMaterialCount: number;
   pageCount: number;
@@ -182,6 +183,7 @@ export async function GET(req: NextRequest) {
         demandsAssignee: 0,
         demandsCompleted: 0,
         materialCount: 0,
+        completedMaterialCount: 0,
         imageMaterialCount: 0,
         videoMaterialCount: 0,
         pageCount: 0,
@@ -200,6 +202,7 @@ export async function GET(req: NextRequest) {
       const statusValue = (row.status ?? "").toString().toLowerCase();
       if (statusGroups.completed.includes(statusValue)) {
         existing.demandsCompleted += 1;
+        existing.completedMaterialCount += deliveryCounts.materialCount;
 
         if (row.created_at && row.finished_at) {
           const createdAt = new Date(row.created_at);
@@ -251,6 +254,7 @@ export async function GET(req: NextRequest) {
         demandsAssignee: 0,
         demandsCompleted: 0,
         materialCount: 0,
+        completedMaterialCount: 0,
         imageMaterialCount: 0,
         videoMaterialCount: 0,
         pageCount: 0,
@@ -314,6 +318,7 @@ export async function GET(req: NextRequest) {
         demandsAssignee: metrics.demandsAssignee,
         demandsCompleted: metrics.demandsCompleted,
         materialCount: metrics.materialCount,
+        completedMaterialCount: metrics.completedMaterialCount,
         imageMaterialCount: metrics.imageMaterialCount,
         videoMaterialCount: metrics.videoMaterialCount,
         pageCount: metrics.pageCount,
