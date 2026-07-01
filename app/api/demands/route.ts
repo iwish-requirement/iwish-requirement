@@ -23,6 +23,7 @@ import {
   getBusinessMonthRange,
   getCurrentBusinessPeriod,
 } from "../../../lib/businessDateRange";
+import { triggerCreativeDemandSheetSync } from "../../../lib/creativeDemandSheetSync";
 
 export const runtime = "edge";
 
@@ -1310,6 +1311,11 @@ export async function POST(req: NextRequest) {
         .catch((e) => {
           console.error("[api/demands] enqueue webhook error", e);
         });
+    });
+
+    triggerCreativeDemandSheetSync({
+      changedDepartmentId: departmentIdNumber || (dept.id as number),
+      source: "demand.created",
     });
 
     // 直接在服务端同步调用企业微信应用消息发送

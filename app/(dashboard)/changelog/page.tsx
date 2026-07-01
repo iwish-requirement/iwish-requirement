@@ -4,6 +4,7 @@ import React from "react";
 import {
   CheckCircle2,
   ClipboardList,
+  FileSpreadsheet,
   Filter,
   LineChart,
   MessageSquareText,
@@ -31,6 +32,36 @@ interface ReleaseNote {
 }
 
 const releases: ReleaseNote[] = [
+  {
+    date: "2026-07-01",
+    title: "创意部需求同步飞书表格",
+    summary:
+      "创意部全部需求支持通过飞书 OpenAPI 全量刷新到普通电子表格，便于其他工具和 AI 流程读取最新需求清单。",
+    audience: ["创意部", "设计团队", "AI 制作流程", "管理员"],
+    items: [
+      {
+        title: "同步到普通 Sheets",
+        description:
+          "系统会把创意部全部需求整理成飞书电子表格，包含编号、标题、状态、优先级、执行人、排期、素材数量、客户和详情链接等字段。",
+        impact: "其他工具可以直接读取同一张表获取当前需求，不需要从系统页面手动复制整理。",
+        icon: FileSpreadsheet,
+      },
+      {
+        title: "按创意部变更自动刷新",
+        description:
+          "创意部需求创建、保存、状态变化或排期变化后，会异步触发表格全量刷新；同步失败不会影响需求正常保存。",
+        impact: "飞书表格会尽量保持和需求系统一致，同时不会因为飞书接口异常阻塞业务操作。",
+        icon: Sparkles,
+      },
+      {
+        title: "支持首次自动建表",
+        description:
+          "配置飞书自建应用后，首次手动同步可在云文档根目录创建“创意部需求同步表”，并返回需要回填的表格 token 和 sheet id。",
+        impact: "管理员无需提前手动建表，完成授权和环境变量配置后即可初始化同步。",
+        icon: CheckCircle2,
+      },
+    ],
+  },
   {
     date: "2026-07-01",
     title: "创意部已完成素材统计与日期口径修复",
