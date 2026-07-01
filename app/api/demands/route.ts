@@ -17,6 +17,12 @@ import {
   resolveCreativeDemandRole,
 } from "../../../lib/creativeDemandAccess";
 import { sanitizeRequesterCustomFields } from "../../../lib/internalDemandFields";
+import {
+  getBusinessDayEndExclusiveIso,
+  getBusinessDayStartIso,
+  getBusinessMonthRange,
+  getCurrentBusinessPeriod,
+} from "../../../lib/businessDateRange";
 
 export const runtime = "edge";
 
@@ -327,8 +333,8 @@ export async function GET(req: NextRequest) {
     const projectIdParam = url.searchParams.get("projectId");
     const demandTypeIdParam = url.searchParams.get("demandTypeId");
     const q = url.searchParams.get("q") || "";
-    const createdFrom = url.searchParams.get("createdFrom");
-    const createdTo = url.searchParams.get("createdTo");
+    const createdFrom = getBusinessDayStartIso(url.searchParams.get("createdFrom"));
+    const createdTo = getBusinessDayEndExclusiveIso(url.searchParams.get("createdTo"));
     const dueFrom = url.searchParams.get("dueFrom");
     const dueTo = url.searchParams.get("dueTo");
     const scopeParam = url.searchParams.get("scope");
@@ -516,7 +522,7 @@ export async function GET(req: NextRequest) {
       }
 
       if (createdTo) {
-        query = query.lte("created_at", createdTo);
+        query = query.lt("created_at", createdTo);
       }
 
       if (dueFrom) {
@@ -849,16 +855,14 @@ export async function GET(req: NextRequest) {
         countForStatuses(statusGroups.completed),
       ]);
 
-      const now = new Date();
-      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-      const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+      const { start: monthStart, end: nextMonthStart } = getBusinessMonthRange(null);
 
       const monthlyQuery = applyFilters(
         supabaseAdmin
           .from("demands")
           .select(DELIVERY_SUMMARY_SELECT)
-          .gte("created_at", monthStart.toISOString())
-          .lt("created_at", nextMonthStart.toISOString()),
+          .gte("created_at", monthStart)
+          .lt("created_at", nextMonthStart),
         { skipStatusParam: true },
       );
 
@@ -993,7 +997,7 @@ export async function GET(req: NextRequest) {
           done: doneSummary,
         },
         deliverySummary: {
-          period: `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`,
+          period: getCurrentBusinessPeriod(),
           created: monthlyCreated,
           completed: monthlyCompleted,
           avgCycleDays: monthlyCycleCount > 0 ? monthlyTotalCycleDays / monthlyCycleCount : 0,
