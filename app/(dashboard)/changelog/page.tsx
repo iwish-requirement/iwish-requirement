@@ -32,6 +32,22 @@ interface ReleaseNote {
 
 const releases: ReleaseNote[] = [
   {
+    date: "2026-07-01",
+    title: "创意部已完成素材统计",
+    summary:
+      "数据统计页的部门成员统计新增已完成素材口径，用于区分成员负责的素材总量和已完成需求中的素材量。",
+    audience: ["创意部", "设计团队", "管理者", "部门负责人"],
+    items: [
+      {
+        title: "新增已完成素材列",
+        description:
+          "部门成员统计现在会展示已完成素材数量，只累加状态属于已完成的需求里的素材数量。",
+        impact: "可以同时看到成员负责的素材总量和实际已完成的素材量，避免把未完成排期也当成交付量。",
+        icon: ClipboardList,
+      },
+    ],
+  },
+  {
     date: "2026-06-02",
     title: "统计月份归属与部门字段口径优化",
     summary:

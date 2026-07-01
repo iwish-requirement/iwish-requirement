@@ -23,6 +23,7 @@ interface DepartmentMemberStat {
   demandsAssignee: number;
   demandsCompleted: number;
   materialCount: number;
+  completedMaterialCount: number;
   imageMaterialCount: number;
   videoMaterialCount: number;
   pageCount: number;
@@ -39,6 +40,7 @@ interface MemberStatsMeta {
   scheduledEnabled: boolean;
   deliveryColumns: {
     materialCount: boolean;
+    completedMaterialCount: boolean;
     imageMaterialCount: boolean;
     videoMaterialCount: boolean;
     pageCount: boolean;
@@ -98,6 +100,7 @@ function buildMemberStatsMeta(
     scheduledEnabled: monthConfig.scheduledEnabled,
     deliveryColumns: {
       materialCount: hasImageMaterialCount || hasVideoMaterialCount,
+      completedMaterialCount: hasImageMaterialCount || hasVideoMaterialCount,
       imageMaterialCount: hasImageMaterialCount,
       videoMaterialCount: hasVideoMaterialCount,
       pageCount: hasPageCount,
@@ -375,6 +378,7 @@ export async function GET(req: NextRequest) {
       demandsAssignee: number;
       demandsCompleted: number;
       materialCount: number;
+      completedMaterialCount: number;
       imageMaterialCount: number;
       videoMaterialCount: number;
       pageCount: number;
@@ -393,6 +397,7 @@ export async function GET(req: NextRequest) {
           demandsAssignee: 0,
           demandsCompleted: 0,
           materialCount: 0,
+          completedMaterialCount: 0,
           imageMaterialCount: 0,
           videoMaterialCount: 0,
           pageCount: 0,
@@ -412,6 +417,7 @@ export async function GET(req: NextRequest) {
       const status = (row.status || "").toLowerCase();
       if (statusGroups.completed.includes(status)) {
         bucket.demandsCompleted += 1;
+        bucket.completedMaterialCount += deliveryCounts.materialCount;
       }
 
       if (row.created_at && row.finished_at) {
@@ -432,6 +438,7 @@ export async function GET(req: NextRequest) {
           demandsAssignee: 0,
           demandsCompleted: 0,
           materialCount: 0,
+          completedMaterialCount: 0,
           imageMaterialCount: 0,
           videoMaterialCount: 0,
           pageCount: 0,
@@ -481,6 +488,7 @@ export async function GET(req: NextRequest) {
         demandsAssignee: bucket.demandsAssignee,
         demandsCompleted: bucket.demandsCompleted,
         materialCount: bucket.materialCount,
+        completedMaterialCount: bucket.completedMaterialCount,
         imageMaterialCount: bucket.imageMaterialCount,
         videoMaterialCount: bucket.videoMaterialCount,
         pageCount: bucket.pageCount,
