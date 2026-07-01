@@ -239,6 +239,12 @@ export default function DemandDetailPage() {
     },
     [scheduledDateFieldKey, templateFields]
   );
+  const editableDraftCustomFields = React.useMemo(() => {
+    const hiddenFieldIds = new Set([scheduledDateFieldKey, 'scheduled_start_date'].filter(Boolean));
+    return Object.fromEntries(
+      Object.entries(draftCustomFields).filter(([key]) => !hiddenFieldIds.has(key))
+    );
+  }, [draftCustomFields, scheduledDateFieldKey]);
 
   const canDeleteDemand =
     (currentUserRole
@@ -286,7 +292,7 @@ export default function DemandDetailPage() {
       draftPriority,
       draftDueDate,
       draftStatus,
-      draftCustomFields,
+      draftCustomFields: editableDraftCustomFields,
       deleteSubmitting,
       setDeleteSubmitting,
       setDeleteError,

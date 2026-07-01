@@ -7,6 +7,7 @@ import {
   resolveAssignedStatusValue,
   resolveDepartmentDemandRules,
 } from "../../../../../lib/departmentDemandRules";
+import { sanitizeRequesterCustomFields } from "../../../../../lib/internalDemandFields";
 
 export const runtime = "edge";
 
@@ -57,7 +58,10 @@ export async function POST(
     }
 
     const rules = resolveDepartmentDemandRules((department as any).config, (department as any).slug);
-    const fields = { ...((source.fields || {}) as Record<string, any>) };
+    const fields = sanitizeRequesterCustomFields(
+      { ...((source.fields || {}) as Record<string, any>) },
+      department as any,
+    );
     fields.code = makeDemandCode();
     fields.creatorCode = authResult.user!.email.split("@")[0]?.toUpperCase();
     delete fields.assigneeCode;

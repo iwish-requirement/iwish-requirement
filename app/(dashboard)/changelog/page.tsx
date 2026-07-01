@@ -52,6 +52,13 @@ const releases: ReleaseNote[] = [
         impact: "选择 7 月 1 日能查到 7 月 1 日当天提交的需求，本月统计也会正确纳入当天数据。",
         icon: Filter,
       },
+      {
+        title: "修复复制需求后的保存失败",
+        description:
+          "复制需求时不再带入内部排期等执行字段，详情页普通保存也不会提交隐藏内部字段。",
+        impact: "复制出来的新需求可以直接进入详情页编辑并保存，不再因为内部字段权限导致保存失败。",
+        icon: ClipboardList,
+      },
     ],
   },
   {
