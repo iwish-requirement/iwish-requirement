@@ -10,6 +10,7 @@ import { sendWecomAppTextMessage } from "../../../../lib/wecomApp";
 import { buildDemandStatusGroups, type DemandStatusGroups } from "../../../../lib/demandStatusGroups";
 import { loadEffectivePermissionsForUser } from "../../../../lib/serverPermissions";
 import { findInternalDemandFieldKeysInPayload } from "../../../../lib/internalDemandFields";
+import { triggerCreativeDemandSheetSync } from "../../../../lib/creativeDemandSheetSync";
 
 export const runtime = "edge";
 
@@ -588,6 +589,11 @@ export async function PATCH(
     const demand = await enrichDemandUsers(mapRowToDemand(data), data);
 
     const nextStatus = ((data.status as string | null) || "").toString();
+
+    triggerCreativeDemandSheetSync({
+      changedDepartmentId: data.department_id as number | null | undefined,
+      source: nextStatus && nextStatus !== previousStatus ? "demand.status_changed" : "demand.updated",
+    });
 
     if (
       assignedUserId &&
