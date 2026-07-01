@@ -31,6 +31,7 @@ async function requestFeishu<T>(
   path: string,
   init: RequestInit & { token?: string } = {},
 ): Promise<T> {
+  const method = (init.method || "GET").toString().toUpperCase();
   const headers: Record<string, string> = {
     "Content-Type": "application/json; charset=utf-8",
     ...((init.headers || {}) as Record<string, string>),
@@ -45,7 +46,7 @@ async function requestFeishu<T>(
   });
   const payload = (await res.json().catch(() => ({}))) as FeishuApiResponse<T>;
   if (!res.ok) {
-    throw new Error(`Feishu HTTP ${res.status}: ${payload.msg || res.statusText}`);
+    throw new Error(`Feishu ${method} ${path} HTTP ${res.status}: ${payload.msg || res.statusText}`);
   }
   return assertFeishuSuccess<T>(payload, path);
 }
@@ -197,7 +198,7 @@ export async function writeFeishuSheetValues(
   const range = `${target.sheetId}!A1:${lastColumn}${values.length}`;
 
   await requestFeishu(`/sheets/v2/spreadsheets/${encodeURIComponent(target.spreadsheetToken)}/values_batch_update`, {
-    method: "PUT",
+    method: "POST",
     token: tenantToken,
     body: JSON.stringify({
       valueRanges: [
