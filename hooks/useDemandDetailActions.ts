@@ -1,7 +1,8 @@
 import React from "react";
 import { type AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { authorizedFetch } from "../lib/authFetch";
-import { DemandStatus, type Demand } from "../types";
+import { DemandStatus, type Demand, type FieldDefinition } from "../types";
+import { findMissingRequiredDemandFields } from "../lib/demandRequiredFieldUtils";
 import { type AttachmentItem, type CommentAttachment, type DemandComment } from "../components/demand-detail/types";
 
 async function uploadCommentAttachments(
@@ -52,6 +53,7 @@ interface UseDemandMutationActionsParams {
   draftDueDate: string;
   draftStatus: string;
   draftCustomFields: Record<string, any>;
+  templateFields: FieldDefinition[];
   deleteSubmitting: boolean;
   setDeleteSubmitting: React.Dispatch<React.SetStateAction<boolean>>;
   setDeleteError: React.Dispatch<React.SetStateAction<string | null>>;
@@ -77,6 +79,7 @@ export function useDemandMutationActions({
   draftDueDate,
   draftStatus,
   draftCustomFields,
+  templateFields,
   deleteSubmitting,
   setDeleteSubmitting,
   setDeleteError,
@@ -123,6 +126,12 @@ export function useDemandMutationActions({
       return;
     }
 
+    const missingRequiredFields = findMissingRequiredDemandFields(templateFields, draftCustomFields);
+    if (missingRequiredFields.length > 0) {
+      setSaveError(`请填写必填字段：${missingRequiredFields.join("、")}`);
+      return;
+    }
+
     setSaving(true);
     setSaveError(null);
     try {
@@ -163,6 +172,7 @@ export function useDemandMutationActions({
     draftPriority,
     draftStatus,
     draftTitle,
+    templateFields,
     setDemand,
     setIsEditing,
     setSaveError,

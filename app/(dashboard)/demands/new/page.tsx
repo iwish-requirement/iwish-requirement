@@ -6,6 +6,7 @@ import { ArrowLeft, Upload, Sparkles, ClipboardList, Clock3 } from 'lucide-react
 import { Department, FieldDefinition, Priority, type DemandType, type DepartmentWorkflowConfig } from '../../../../types';
 import { getSupabaseClient } from '../../../../lib/supabase';
 import { authorizedFetch } from '../../../../lib/authFetch';
+import { findMissingRequiredDemandFields } from '../../../../lib/demandRequiredFieldUtils';
 
 type QuickTemplate = {
   id: number;
@@ -640,6 +641,11 @@ export default function NewDemandPage() {
     }
     if (!requiresLeaderAssignment && !assigneeEmail.trim()) {
       setError('请选择执行人，该字段为必填');
+      return;
+    }
+    const missingRequiredFields = findMissingRequiredDemandFields(dynamicFields, formData);
+    if (missingRequiredFields.length > 0) {
+      setError(`请填写必填字段：${missingRequiredFields.join('、')}`);
       return;
     }
     if (!creatorEmail) {

@@ -11,6 +11,7 @@ import { buildDemandStatusGroups, type DemandStatusGroups } from "../../../../li
 import { loadEffectivePermissionsForUser } from "../../../../lib/serverPermissions";
 import { findInternalDemandFieldKeysInPayload } from "../../../../lib/internalDemandFields";
 import { triggerCreativeDemandSheetSync } from "../../../../lib/creativeDemandSheetSync";
+import { validateRequiredDemandFields } from "../../../../lib/serverDemandRequiredFields";
 
 export const runtime = "edge";
 
@@ -526,6 +527,30 @@ export async function PATCH(
     }
 
     // 状态更新到数据库字段（不再映射）
+    if (customFields !== undefined || demandTypeId !== undefined) {
+      const requiredFieldsValidation = await validateRequiredDemandFields({
+        departmentId: existing.department_id as number,
+        demandTypeId:
+          demandTypeId !== undefined
+            ? demandTypeId
+            : ((existing.demand_type_id as number | null) || null),
+        templateId:
+          (updates.field_template_id as number | null | undefined) ??
+          (existing.field_template_id as number | null),
+        customFields: fields,
+      });
+      if (!requiredFieldsValidation.valid) {
+        return NextResponse.json(
+          {
+            error: "missing_required_fields",
+            detail: `请填写必填字段：${requiredFieldsValidation.missing.join("、")}`,
+            fields: requiredFieldsValidation.missing,
+          },
+          { status: 400 },
+        );
+      }
+    }
+
     if (status) {
       updates.status = status;
       Object.assign(updates, buildStatusTimestampUpdates(status, existing, statusGroups));

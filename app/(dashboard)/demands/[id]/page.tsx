@@ -293,6 +293,7 @@ export default function DemandDetailPage() {
       draftDueDate,
       draftStatus,
       draftCustomFields: editableDraftCustomFields,
+      templateFields: visibleTemplateFields,
       deleteSubmitting,
       setDeleteSubmitting,
       setDeleteError,

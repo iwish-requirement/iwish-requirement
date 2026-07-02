@@ -8,6 +8,7 @@ import {
   resolveDepartmentDemandRules,
 } from "../../../../../../lib/departmentDemandRules";
 import { sanitizeRequesterCustomFields } from "../../../../../../lib/internalDemandFields";
+import { validateRequiredDemandFields } from "../../../../../../lib/serverDemandRequiredFields";
 
 export const runtime = "edge";
 
@@ -100,6 +101,21 @@ export async function POST(
     const demandTypeId = Number.parseInt(String(body.demandTypeId || draft.demand_type_id || ""), 10);
     if (Number.isNaN(demandTypeId) || demandTypeId <= 0) {
       return NextResponse.json({ error: "demand type is required" }, { status: 400 });
+    }
+    const requiredFieldsValidation = await validateRequiredDemandFields({
+      departmentId,
+      demandTypeId,
+      customFields: mergedCustomFields,
+    });
+    if (!requiredFieldsValidation.valid) {
+      return NextResponse.json(
+        {
+          error: "missing_required_fields",
+          detail: `请填写必填字段：${requiredFieldsValidation.missing.join("、")}`,
+          fields: requiredFieldsValidation.missing,
+        },
+        { status: 400 },
+      );
     }
     const customerId = Number.parseInt(String(body.customerId || draft.customer_id || ""), 10);
     const projectId = Number.parseInt(String(body.projectId || draft.project_id || ""), 10);
