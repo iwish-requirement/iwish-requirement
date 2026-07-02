@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest, ensureActiveUser } from "../../../../lib/serverAuth";
 import { resolveStatsScopeForUser } from "../../../../lib/statScope";
-import { DemandStatus, Demand, Priority } from "../../../../types";
+import { DemandStatus, Demand, Priority, type DepartmentWorkflowConfig } from "../../../../types";
+import { extractLegacyCustomerProject } from "../../../../lib/legacyDemandFields";
 import {
   getBusinessDayEndExclusiveIso,
   getBusinessDayStartIso,
@@ -108,6 +109,70 @@ function escapeCsvCell(value: string): string {
   if (!needsQuote) return value;
   const escaped = value.replace(/"/g, '""');
   return `"${escaped}"`;
+}
+
+function resolvePriorityLabel(
+  rawPriority: string | undefined | null,
+  cfg: DepartmentWorkflowConfig | null,
+): string {
+  const value = (rawPriority ?? "").toString();
+  if (!value) return "";
+
+  if (cfg?.priorities?.length) {
+    const found =
+      cfg.priorities.find((p) => p.value === value) ||
+      cfg.priorities.find((p) => p.label === value);
+    if (found) return found.label;
+  }
+
+  const lower = value.toLowerCase();
+  if (value.includes("紧急") || lower === "critical" || lower === "p0") return "紧急";
+  if (value.includes("高") || lower === "high" || lower === "p1") return "高";
+  if (value.includes("中") || lower === "medium" || lower === "p2") return "中";
+  if (value.includes("低") || lower === "low" || lower === "p3") return "低";
+  return value;
+}
+
+function resolveStatusLabel(
+  rawStatus: string | undefined | null,
+  cfg: DepartmentWorkflowConfig | null,
+): string {
+  const value = (rawStatus ?? "").toString();
+  if (!value) return "";
+
+  if (cfg?.statuses?.length) {
+    const found =
+      cfg.statuses.find((s) => s.value === value) ||
+      cfg.statuses.find((s) => s.label === value);
+    if (found) return found.label;
+  }
+
+  switch (value) {
+    case "unassigned":
+      return "待负责人分配";
+    case "pending":
+      return DemandStatus.PENDING;
+    case "in_progress":
+      return DemandStatus.IN_PROGRESS;
+    case "review":
+      return DemandStatus.REVIEW;
+    case "done":
+      return DemandStatus.DONE;
+    case "closed":
+      return DemandStatus.CLOSED;
+    case "delayed":
+      return DemandStatus.DELAYED;
+    case "ignored":
+      return DemandStatus.IGNORED;
+    default:
+      return value;
+  }
+}
+
+function fieldsPriority(row: any): string | null {
+  const fields = (row?.fields || {}) as Record<string, unknown>;
+  const value = fields.priority;
+  return value === undefined || value === null ? null : String(value);
 }
 
 export async function GET(req: NextRequest) {
@@ -242,12 +307,12 @@ export async function GET(req: NextRequest) {
 
     const allUserIds = Array.from(new Set([...(creatorIds || []), ...(assigneeIds || [])]));
 
-    let userMap = new Map<number, { id: number; name: string | null; email: string | null }>();
+    let userMap = new Map<number, { id: number; name: string | null; email: string | null; departmentId: number | null }>();
 
     if (allUserIds.length > 0) {
       const { data: users, error: usersError } = await supabaseAdmin
         .from("users")
-        .select("id, name, email")
+        .select("id, name, email, department_id")
         .in("id", allUserIds);
 
       if (usersError) {
@@ -259,25 +324,38 @@ export async function GET(req: NextRequest) {
             id,
             name: (u.name as string | null) ?? null,
             email: (u.email as string | null) ?? null,
+            departmentId: (u.department_id as number | null) ?? null,
           });
         }
       }
     }
 
+    const userDepartmentIds = Array.from(
+      new Set(
+        Array.from(userMap.values())
+          .map((user) => user.departmentId)
+          .filter((id): id is number => typeof id === "number" && Number.isFinite(id))
+      )
+    );
+
     const departmentIds = Array.from(
       new Set(
-        rows
+        [
+          ...rows
           .map((row) => row.department_id as number | null)
-          .filter((id) => typeof id === "number" && Number.isFinite(id))
+          .filter((id) => typeof id === "number" && Number.isFinite(id)),
+          ...userDepartmentIds,
+        ]
       )
     ) as number[];
 
     let departmentMap = new Map<number, string>();
+    let departmentWorkflowMap = new Map<number, DepartmentWorkflowConfig>();
 
     if (departmentIds.length > 0) {
       const { data: departments, error: departmentsError } = await supabaseAdmin
         .from("departments")
-        .select("id, name")
+        .select("id, name, priority_config, status_config")
         .in("id", departmentIds);
 
       if (departmentsError) {
@@ -287,6 +365,35 @@ export async function GET(req: NextRequest) {
           const id = d.id as number;
           const name = (d.name as string | null) ?? "";
           departmentMap.set(id, name);
+          departmentWorkflowMap.set(id, {
+            priorities: Array.isArray((d as any).priority_config) ? ((d as any).priority_config as any[]) : [],
+            statuses: Array.isArray((d as any).status_config) ? ((d as any).status_config as any[]) : [],
+          });
+        }
+      }
+    }
+
+    const customerIds = Array.from(
+      new Set(
+        rows
+          .map((row) => row.customer_id as number | null)
+          .filter((id) => typeof id === "number" && Number.isFinite(id))
+      )
+    ) as number[];
+
+    let customerMap = new Map<number, string>();
+
+    if (customerIds.length > 0) {
+      const { data: customers, error: customersError } = await supabaseAdmin
+        .from("customers")
+        .select("id, name")
+        .in("id", customerIds);
+
+      if (customersError) {
+        console.error("[api/demands/export] load customers error", customersError);
+      } else if (customers) {
+        for (const customer of customers) {
+          customerMap.set(customer.id as number, ((customer.name as string | null) || "").toString());
         }
       }
     }
@@ -347,12 +454,25 @@ export async function GET(req: NextRequest) {
       if (creatorUser) {
         demand.creatorName = creatorUser.name || demand.creatorId;
         demand.creatorEmail = creatorUser.email || undefined;
+        demand.creatorDepartmentName = creatorUser.departmentId
+          ? departmentMap.get(creatorUser.departmentId) || ""
+          : "";
       }
 
       if (assigneeUser) {
         demand.assigneeName = assigneeUser.name || demand.assigneeId;
         demand.assigneeEmail = assigneeUser.email || undefined;
       }
+
+      const workflowConfig =
+        typeof row.department_id === "number" ? departmentWorkflowMap.get(row.department_id) || null : null;
+      demand.statusLabel = resolveStatusLabel(row.status as string | null, workflowConfig);
+      demand.priorityLabel = resolvePriorityLabel((row.priority as string | null) || fieldsPriority(row), workflowConfig);
+      const legacyDisplay = extractLegacyCustomerProject(demand.customFields || {});
+      demand.customerBrandName =
+        (typeof row.customer_id === "number" ? customerMap.get(row.customer_id) || "" : "") ||
+        legacyDisplay.legacyCustomerName ||
+        "";
 
       return demand as Demand;
     });
@@ -363,7 +483,9 @@ export async function GET(req: NextRequest) {
       "标题",
       "描述",
       "部门",
+      "客户/品牌",
       "提交人",
+      "提交人部门",
       "执行人",
       "状态",
       "优先级",
@@ -392,10 +514,12 @@ export async function GET(req: NextRequest) {
       }
 
       row.push(escapeCsvCell(departmentName));
+      row.push(escapeCsvCell((d as any).customerBrandName || ""));
       row.push(escapeCsvCell(d.creatorName || d.creatorId || ""));
+      row.push(escapeCsvCell((d as any).creatorDepartmentName || ""));
       row.push(escapeCsvCell(d.assigneeName || d.assigneeId || ""));
-      row.push(escapeCsvCell(d.status || ""));
-      row.push(escapeCsvCell(d.priority || ""));
+      row.push(escapeCsvCell((d as any).statusLabel || d.status || ""));
+      row.push(escapeCsvCell((d as any).priorityLabel || d.priority || ""));
       row.push(escapeCsvCell(d.createdAt || ""));
       row.push(escapeCsvCell(d.dueDate || ""));
 

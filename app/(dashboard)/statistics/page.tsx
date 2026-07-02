@@ -180,6 +180,8 @@ export default function StatsPage() {
   const [departmentShare, setDepartmentShare] = useState<DepartmentShareItem[]>([]);
   const [trendData, setTrendData] = useState<TrendPoint[]>([]);
   const [customerRanking, setCustomerRanking] = useState<BreakdownItem[]>([]);
+  const [departmentRanking, setDepartmentRanking] = useState<BreakdownItem[]>([]);
+  const [creatorRanking, setCreatorRanking] = useState<BreakdownItem[]>([]);
   const [projectRanking, setProjectRanking] = useState<BreakdownItem[]>([]);
   const [demandTypeDistribution, setDemandTypeDistribution] = useState<BreakdownItem[]>([]);
   const [loadingOverview, setLoadingOverview] = useState(false);
@@ -363,6 +365,8 @@ export default function StatsPage() {
             setDepartmentShare([]);
             setTrendData([]);
             setCustomerRanking([]);
+            setDepartmentRanking([]);
+            setCreatorRanking([]);
             setProjectRanking([]);
             setDemandTypeDistribution([]);
           }
@@ -373,6 +377,8 @@ export default function StatsPage() {
           departmentShare: DepartmentShareItem[];
           trend: TrendPoint[];
           customerRanking?: BreakdownItem[];
+          departmentRanking?: BreakdownItem[];
+          creatorRanking?: BreakdownItem[];
           projectRanking?: BreakdownItem[];
           demandTypeDistribution?: BreakdownItem[];
         };
@@ -381,6 +387,8 @@ export default function StatsPage() {
           setDepartmentShare(Array.isArray(json.departmentShare) ? json.departmentShare : []);
           setTrendData(Array.isArray(json.trend) ? json.trend : []);
           setCustomerRanking(Array.isArray(json.customerRanking) ? json.customerRanking : []);
+          setDepartmentRanking(Array.isArray(json.departmentRanking) ? json.departmentRanking : []);
+          setCreatorRanking(Array.isArray(json.creatorRanking) ? json.creatorRanking : []);
           setProjectRanking(Array.isArray(json.projectRanking) ? json.projectRanking : []);
           setDemandTypeDistribution(Array.isArray(json.demandTypeDistribution) ? json.demandTypeDistribution : []);
         }
@@ -392,6 +400,8 @@ export default function StatsPage() {
           setDepartmentShare([]);
           setTrendData([]);
           setCustomerRanking([]);
+          setDepartmentRanking([]);
+          setCreatorRanking([]);
           setProjectRanking([]);
           setDemandTypeDistribution([]);
         }
@@ -654,10 +664,11 @@ export default function StatsPage() {
 
       <DynamicFieldStatisticsSection selectedDeptId={selectedDeptId} selectedPeriod={selectedPeriod} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {[
           { title: "客户需求排行", items: customerRanking },
-          { title: "项目需求排行", items: projectRanking },
+          { title: "部门需求排行", items: departmentRanking },
+          { title: "提交人需求排行", items: creatorRanking },
           { title: "需求类型分布", items: demandTypeDistribution },
         ].map((section) => (
           <div key={section.title} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">

@@ -55,6 +55,8 @@ interface OverviewResponseBody {
   departmentShare: DepartmentShareItem[];
   trend: TrendPoint[];
   customerRanking: BreakdownItem[];
+  departmentRanking: BreakdownItem[];
+  creatorRanking: BreakdownItem[];
   projectRanking: BreakdownItem[];
   demandTypeDistribution: BreakdownItem[];
 }
@@ -166,7 +168,7 @@ export async function GET(req: NextRequest) {
     const departmentShareQuery = applyDepartmentFilter(
       supabaseAdmin
         .from("demands")
-        .select("department_id, customer_id, project_id, demand_type_id")
+        .select("department_id, customer_id, project_id, demand_type_id, creator_id")
         .gte("created_at", start)
         .lt("created_at", end),
       departmentId,
@@ -211,6 +213,7 @@ export async function GET(req: NextRequest) {
     const customersQuery = supabaseAdmin.from("customers").select("id, name");
     const projectsQuery = supabaseAdmin.from("projects").select("id, name");
     const demandTypesQuery = supabaseAdmin.from("demand_types").select("id, name");
+    const usersQuery = supabaseAdmin.from("users").select("id, name, email");
 
     const [
       demandsCreatedResult,
@@ -226,6 +229,7 @@ export async function GET(req: NextRequest) {
       customersResult,
       projectsResult,
       demandTypesResult,
+      usersResult,
     ] = await Promise.all([
       demandsCreatedQuery,
       demandsCompletedQuery,
@@ -240,6 +244,7 @@ export async function GET(req: NextRequest) {
       customersQuery,
       projectsQuery,
       demandTypesQuery,
+      usersQuery,
     ] as const);
 
     const errors = [
@@ -256,6 +261,7 @@ export async function GET(req: NextRequest) {
       customersResult.error,
       projectsResult.error,
       demandTypesResult.error,
+      usersResult.error,
     ].filter(Boolean);
 
     if (errors.length > 0) {
@@ -355,16 +361,22 @@ export async function GET(req: NextRequest) {
     for (const type of (demandTypesResult.data || []) as { id: number; name: string | null }[]) {
       demandTypeMap.set(type.id, (type.name || "未命名类型").toString());
     }
+    const userMap = new Map<number, string>();
+    for (const user of (usersResult.data || []) as { id: number; name: string | null; email: string | null }[]) {
+      userMap.set(user.id, (user.name || user.email || "未命名提交人").toString());
+    }
 
     const departmentAggregate = new Map<number, number>();
     const customerAggregate = new Map<number, number>();
     const projectAggregate = new Map<number, number>();
     const demandTypeAggregate = new Map<number, number>();
+    const creatorAggregate = new Map<number, number>();
     const departmentRows = (departmentShareResult.data || []) as {
       department_id: number | null;
       customer_id: number | null;
       project_id: number | null;
       demand_type_id: number | null;
+      creator_id: number | null;
     }[];
     for (const row of departmentRows) {
       if (row.department_id) {
@@ -378,6 +390,9 @@ export async function GET(req: NextRequest) {
       }
       if (row.demand_type_id) {
         demandTypeAggregate.set(row.demand_type_id, (demandTypeAggregate.get(row.demand_type_id) || 0) + 1);
+      }
+      if (row.creator_id) {
+        creatorAggregate.set(row.creator_id, (creatorAggregate.get(row.creator_id) || 0) + 1);
       }
     }
 
@@ -509,6 +524,8 @@ export async function GET(req: NextRequest) {
       departmentShare,
       trend,
       customerRanking: toBreakdown(customerAggregate, customerMap),
+      departmentRanking: toBreakdown(departmentAggregate, deptMap),
+      creatorRanking: toBreakdown(creatorAggregate, userMap),
       projectRanking: toBreakdown(projectAggregate, projectMap),
       demandTypeDistribution: toBreakdown(demandTypeAggregate, demandTypeMap),
     };
