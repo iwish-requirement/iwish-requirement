@@ -124,7 +124,13 @@ export default function DemandsPage() {
     name: string | null;
     email: string | null;
   }[]>([]);
+  const [creatorUsers, setCreatorUsers] = useState<{
+    id: number;
+    name: string | null;
+    email: string | null;
+  }[]>([]);
   const [deptUsersLoading, setDeptUsersLoading] = useState(false);
+  const [creatorUsersLoading, setCreatorUsersLoading] = useState(false);
   const [creatorUserId, setCreatorUserId] = useState("");
   const [assigneeUserId, setAssigneeUserId] = useState("");
 
@@ -316,13 +322,48 @@ export default function DemandsPage() {
   }, [selectedDept]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const loadCreatorUsers = async () => {
+      try {
+        setCreatorUsersLoading(true);
+        const res = await authorizedFetch("/api/users/mention-options");
+        if (!res.ok) {
+          console.error("load creator users for filters error", await res.text());
+          if (!cancelled) setCreatorUsers([]);
+          return;
+        }
+        const json = await res.json();
+        const items = (json.items || []) as {
+          id: number;
+          name: string | null;
+          email: string | null;
+        }[];
+        if (!cancelled) {
+          setCreatorUsers(items);
+        }
+      } catch (e) {
+        console.error("load creator users for filters error", e);
+        if (!cancelled) setCreatorUsers([]);
+      } finally {
+        if (!cancelled) setCreatorUsersLoading(false);
+      }
+    };
+
+    loadCreatorUsers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (selectedDept === "all") {
       setDeptUsers([]);
       setDynamicFilterFields([]);
       setDemandTypes([]);
       setSelectedDemandTypeId("");
       setDynamicFilters({});
-      setCreatorUserId("");
       setAssigneeUserId("");
       return;
     }
@@ -554,13 +595,13 @@ export default function DemandsPage() {
           }
 
           if (creatorUserId) {
-            if (mapped.creatorId !== creatorUserId) {
+            if (String(mapped.creatorUserId || "") !== creatorUserId) {
               return;
             }
           }
 
           if (assigneeUserId) {
-            if (mapped.assigneeId !== assigneeUserId) {
+            if (String(mapped.assigneeUserId || "") !== assigneeUserId) {
               return;
             }
           }
@@ -1706,19 +1747,19 @@ export default function DemandsPage() {
                     setCreatorUserId(e.target.value);
                     setPage(1);
                   }}
-                  disabled={selectedDept === "all" || deptUsersLoading || deptUsers.length === 0}
+                  disabled={creatorUsersLoading || creatorUsers.length === 0}
                   className="w-full sm:w-auto flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
                 >
-                  {selectedDept === "all" ? (
-                    <option value="">请先选择部门</option>
-                  ) : deptUsersLoading ? (
-                    <option value="">正在加载部门成员...</option>
-                  ) : deptUsers.length === 0 ? (
+                  {creatorUsersLoading ? (
+                    <option value="">正在加载提交人...</option>
+                  ) : creatorUsers.length === 0 ? (
+                    <option value="">暂无可选提交人</option>
+                  ) : false ? (
                     <option value="">该部门暂无成员</option>
                   ) : (
                     <>
                       <option value="">全部提交人</option>
-                      {deptUsers.map((user) => {
+                      {creatorUsers.map((user) => {
                         if (!user.email) return null;
                         const displayName = user.name || user.email.split("@")[0];
                         return (
@@ -2165,19 +2206,19 @@ export default function DemandsPage() {
                         setCreatorUserId(e.target.value);
                         setPage(1);
                       }}
-                      disabled={selectedDept === 'all' || deptUsersLoading || deptUsers.length === 0}
+                      disabled={creatorUsersLoading || creatorUsers.length === 0}
                       className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
                     >
-                      {selectedDept === 'all' ? (
-                        <option value=''>请先选择部门</option>
-                      ) : deptUsersLoading ? (
-                        <option value=''>正在加载部门成员...</option>
-                      ) : deptUsers.length === 0 ? (
+                      {creatorUsersLoading ? (
+                        <option value=''>正在加载提交人...</option>
+                      ) : creatorUsers.length === 0 ? (
+                        <option value=''>暂无可选提交人</option>
+                      ) : false ? (
                         <option value=''>该部门暂无成员</option>
                       ) : (
                         <>
                           <option value=''>全部提交人</option>
-                          {deptUsers.map((user) => {
+                          {creatorUsers.map((user) => {
                             if (!user.email) return null;
                             const displayName = user.name || user.email.split('@')[0];
                             return (
