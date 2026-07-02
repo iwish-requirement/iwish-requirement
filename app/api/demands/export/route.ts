@@ -11,6 +11,12 @@ import {
 
 export const runtime = "edge";
 
+type DynamicExportColumn = {
+  key: string;
+  label: string;
+  aliases: string[];
+};
+
 function mapStatus(status: string | null): DemandStatus {
   const value = (status ?? "").toString();
   switch (value) {
@@ -110,6 +116,147 @@ function escapeCsvCell(value: string): string {
   const escaped = value.replace(/"/g, '""');
   return `"${escaped}"`;
 }
+
+function normalizeFieldName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s/_\\\-:：,，.。|｜()[\]（）【】{}]+/g, "");
+}
+
+function isWebsiteNameLabel(label: string): boolean {
+  const normalized = normalizeFieldName(label);
+  return (
+    normalized.includes("\u7f51\u7ad9\u540d\u79f0") ||
+    normalized.includes("\u5ba2\u6237\u54c1\u724c") ||
+    normalized.includes("\u5ba2\u6237\u54c1\u724c\u540d\u79f0")
+  );
+}
+
+function isWebsiteUrlLabel(label: string): boolean {
+  const normalized = normalizeFieldName(label);
+  return (
+    normalized.includes("\u7f51\u5740") ||
+    normalized.includes("\u4ea7\u54c1\u8be6\u60c5\u9875") ||
+    normalized.includes("\u5ba2\u6237\u7f51\u5740")
+  );
+}
+
+function isAdLaunchDateLabel(label: string): boolean {
+  return normalizeFieldName(label).includes("\u5e7f\u544a\u4e0a\u7ebf\u65f6\u95f4");
+}
+
+function isSubmitterLabel(label: string): boolean {
+  return normalizeFieldName(label).includes("\u9700\u6c42\u63d0\u4ea4\u4eba");
+}
+
+function labelsShareBusinessMeaning(left: string, right: string): boolean {
+  const normalizedLeft = normalizeFieldName(left);
+  const normalizedRight = normalizeFieldName(right);
+  return (
+    normalizedLeft === normalizedRight ||
+    (isWebsiteNameLabel(left) && isWebsiteNameLabel(right)) ||
+    (isWebsiteUrlLabel(left) && isWebsiteUrlLabel(right)) ||
+    (isAdLaunchDateLabel(left) && isAdLaunchDateLabel(right)) ||
+    (isSubmitterLabel(left) && isSubmitterLabel(right))
+  );
+}
+
+function buildFieldAliases(
+  key: string,
+  label: string,
+  departmentFields: { key: string | null; label: string | null }[],
+): string[] {
+  const aliases = new Set<string>([key, label]);
+
+  for (const field of departmentFields) {
+    const fieldKey = (field.key || "").trim();
+    const fieldLabel = (field.label || "").trim();
+    if (!fieldKey || !fieldLabel) continue;
+    if (labelsShareBusinessMeaning(label, fieldLabel)) {
+      aliases.add(fieldKey);
+      aliases.add(fieldLabel);
+    }
+  }
+
+  if (isWebsiteNameLabel(label)) {
+    [
+      "website_name",
+      "customerName",
+      "customer_name",
+      "brand",
+      "brand_name",
+      "\u7f51\u7ad9\u540d\u79f0",
+      "\u7f51\u7ad9\u540d\u79f0/\u5ba2\u6237\u54c1\u724c",
+      "\u5ba2\u6237/\u54c1\u724c",
+      "\u5ba2\u6237",
+      "\u54c1\u724c",
+    ].forEach((alias) => aliases.add(alias));
+  }
+
+  if (isWebsiteUrlLabel(label)) {
+    [
+      "website_url",
+      "projectName",
+      "project_name",
+      "url",
+      "site_url",
+      "\u7f51\u5740",
+      "\u7f51\u5740/\u4ea7\u54c1\u8be6\u60c5\u9875",
+      "\u9700\u652f\u6301\u7684\u5ba2\u6237\u7f51\u5740",
+      "\u94fe\u63a5",
+      "\u9879\u76ee",
+    ].forEach((alias) => aliases.add(alias));
+  }
+
+  if (isAdLaunchDateLabel(label)) {
+    ["ad_launch_date", "\u5e7f\u544a\u4e0a\u7ebf\u65f6\u95f4"].forEach((alias) => aliases.add(alias));
+  }
+
+  return Array.from(aliases);
+}
+
+function readCustomFieldValue(
+  customFields: Record<string, any>,
+  column: Pick<DynamicExportColumn, "key" | "label" | "aliases">,
+) {
+  const aliases = new Set([column.key, column.label, ...column.aliases].filter(Boolean));
+  for (const alias of aliases) {
+    if (Object.prototype.hasOwnProperty.call(customFields, alias)) {
+      return customFields[alias];
+    }
+  }
+
+  const normalizedAliases = new Set(Array.from(aliases).map((alias) => normalizeFieldName(alias)));
+  for (const [fieldKey, value] of Object.entries(customFields)) {
+    if (normalizedAliases.has(normalizeFieldName(fieldKey))) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function stringifyExportValue(rawValue: any): string {
+  if (rawValue === undefined || rawValue === null) return "";
+  if (
+    typeof rawValue === "string" ||
+    typeof rawValue === "number" ||
+    typeof rawValue === "boolean"
+  ) {
+    return String(rawValue);
+  }
+  if (Array.isArray(rawValue)) {
+    return rawValue.map((item) => stringifyExportValue(item)).filter(Boolean).join("; ");
+  }
+  return JSON.stringify(rawValue);
+}
+
+const CUSTOMER_BRAND_COLUMN: DynamicExportColumn = {
+  key: "customerBrandName",
+  label: "\u5ba2\u6237/\u54c1\u724c",
+  aliases: buildFieldAliases("customerBrandName", "\u7f51\u7ad9\u540d\u79f0/\u5ba2\u6237\u54c1\u724c", []),
+};
 
 function resolvePriorityLabel(
   rawPriority: string | undefined | null,
@@ -398,7 +545,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    let dynamicColumns: { key: string; label: string }[] = [];
+    let dynamicColumns: DynamicExportColumn[] = [];
+    let departmentFieldAliases: { key: string | null; label: string | null }[] = [];
 
     let departmentIdForFields: number | null = null;
     if (departmentIdParam) {
@@ -409,6 +557,17 @@ export async function GET(req: NextRequest) {
     }
 
     if (departmentIdForFields !== null) {
+      const { data: allDepartmentFields, error: allDepartmentFieldsError } = await supabaseAdmin
+        .from("department_fields")
+        .select("key, label")
+        .eq("department_id", departmentIdForFields);
+
+      if (allDepartmentFieldsError) {
+        console.error("[api/demands/export] load department field aliases error", allDepartmentFieldsError);
+      } else if (allDepartmentFields) {
+        departmentFieldAliases = allDepartmentFields as { key: string | null; label: string | null }[];
+      }
+
       const { data: activeTemplate, error: tplError } = await supabaseAdmin
         .from("department_field_templates")
         .select("id")
@@ -440,6 +599,7 @@ export async function GET(req: NextRequest) {
             .map((field) => ({
               key: String(field.key),
               label: String(field.label),
+              aliases: buildFieldAliases(String(field.key), String(field.label), departmentFieldAliases),
             }));
         }
       }
@@ -468,9 +628,12 @@ export async function GET(req: NextRequest) {
         typeof row.department_id === "number" ? departmentWorkflowMap.get(row.department_id) || null : null;
       demand.statusLabel = resolveStatusLabel(row.status as string | null, workflowConfig);
       demand.priorityLabel = resolvePriorityLabel((row.priority as string | null) || fieldsPriority(row), workflowConfig);
+      const customFields = (demand.customFields || {}) as Record<string, any>;
       const legacyDisplay = extractLegacyCustomerProject(demand.customFields || {});
+      const customerBrandFromFields = stringifyExportValue(readCustomFieldValue(customFields, CUSTOMER_BRAND_COLUMN));
       demand.customerBrandName =
         (typeof row.customer_id === "number" ? customerMap.get(row.customer_id) || "" : "") ||
+        customerBrandFromFields ||
         legacyDisplay.legacyCustomerName ||
         "";
 
@@ -525,18 +688,10 @@ export async function GET(req: NextRequest) {
 
       const customFields = (d.customFields || {}) as Record<string, any>;
       for (const column of dynamicColumns) {
-        const rawValue = customFields[column.key];
-        let value = "";
-        if (rawValue !== undefined && rawValue !== null) {
-          if (
-            typeof rawValue === "string" ||
-            typeof rawValue === "number" ||
-            typeof rawValue === "boolean"
-          ) {
-            value = String(rawValue);
-          } else {
-            value = JSON.stringify(rawValue);
-          }
+        const rawValue = readCustomFieldValue(customFields, column);
+        let value = stringifyExportValue(rawValue);
+        if (!value && isSubmitterLabel(column.label)) {
+          value = d.creatorName || d.creatorId || "";
         }
         row.push(escapeCsvCell(value));
       }
