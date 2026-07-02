@@ -258,6 +258,54 @@ const CUSTOMER_BRAND_COLUMN: DynamicExportColumn = {
   aliases: buildFieldAliases("customerBrandName", "\u7f51\u7ad9\u540d\u79f0/\u5ba2\u6237\u54c1\u724c", []),
 };
 
+function chooseExportLabel(current: string, next: string): string {
+  if (isWebsiteNameLabel(current) && isWebsiteNameLabel(next)) {
+    return next.length > current.length ? next : current;
+  }
+  return current;
+}
+
+function buildDynamicExportColumns(
+  fields: {
+    key: string | null;
+    label: string | null;
+    exportable?: boolean | null;
+  }[],
+): DynamicExportColumn[] {
+  const formFields = fields
+    .filter((field) => field.key && field.label);
+  const departmentFieldAliases = formFields.map((field) => ({
+    key: field.key,
+    label: field.label,
+  }));
+  const columns: DynamicExportColumn[] = [];
+
+  for (const field of formFields) {
+    const key = String(field.key);
+    const label = String(field.label);
+    const aliases = buildFieldAliases(key, label, departmentFieldAliases);
+    const existing = columns.find(
+      (column) =>
+        column.key === key ||
+        labelsShareBusinessMeaning(column.label, label) ||
+        column.aliases.some((alias) => alias === key || alias === label),
+    );
+
+    if (existing) {
+      existing.label = chooseExportLabel(existing.label, label);
+      existing.aliases = Array.from(new Set([...existing.aliases, key, label, ...aliases]));
+    } else {
+      columns.push({
+        key,
+        label,
+        aliases,
+      });
+    }
+  }
+
+  return columns;
+}
+
 function resolvePriorityLabel(
   rawPriority: string | undefined | null,
   cfg: DepartmentWorkflowConfig | null,
@@ -546,62 +594,34 @@ export async function GET(req: NextRequest) {
     }
 
     let dynamicColumns: DynamicExportColumn[] = [];
-    let departmentFieldAliases: { key: string | null; label: string | null }[] = [];
+    const demandDepartmentIds = Array.from(
+      new Set(
+        rows
+          .map((row) => row.department_id as number | null)
+          .filter((id): id is number => typeof id === "number" && Number.isFinite(id) && id > 0),
+      ),
+    );
+    const departmentIdsForFields = scopedDepartmentId !== null
+      ? Array.from(new Set([scopedDepartmentId, ...demandDepartmentIds]))
+      : demandDepartmentIds;
 
-    let departmentIdForFields: number | null = null;
-    if (departmentIdParam) {
-      const parsed = Number.parseInt(departmentIdParam, 10);
-      if (!Number.isNaN(parsed) && parsed > 0) {
-        departmentIdForFields = parsed;
-      }
-    }
-
-    if (departmentIdForFields !== null) {
-      const { data: allDepartmentFields, error: allDepartmentFieldsError } = await supabaseAdmin
+    if (departmentIdsForFields.length > 0) {
+      const { data: fields, error: fieldsError } = await supabaseAdmin
         .from("department_fields")
-        .select("key, label")
-        .eq("department_id", departmentIdForFields);
+        .select("key, label, exportable, department_id, template_id, order_index")
+        .in("department_id", departmentIdsForFields)
+        .order("department_id", { ascending: true })
+        .order("template_id", { ascending: true })
+        .order("order_index", { ascending: true });
 
-      if (allDepartmentFieldsError) {
-        console.error("[api/demands/export] load department field aliases error", allDepartmentFieldsError);
-      } else if (allDepartmentFields) {
-        departmentFieldAliases = allDepartmentFields as { key: string | null; label: string | null }[];
-      }
-
-      const { data: activeTemplate, error: tplError } = await supabaseAdmin
-        .from("department_field_templates")
-        .select("id")
-        .eq("department_id", departmentIdForFields)
-        .eq("is_active", true)
-        .order("version", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (tplError) {
-        console.error("[api/demands/export] load active field template error", tplError);
-      } else if (activeTemplate) {
-        const { data: fields, error: fieldsError } = await supabaseAdmin
-          .from("department_fields")
-          .select("key, label, exportable")
-          .eq("department_id", departmentIdForFields)
-          .eq("template_id", activeTemplate.id)
-          .order("order_index", { ascending: true });
-
-        if (fieldsError) {
-          console.error("[api/demands/export] load exportable fields error", fieldsError);
-        } else if (fields) {
-          dynamicColumns = (fields as any[])
-            .filter((field) =>
-              field.exportable === undefined || field.exportable === null
-                ? true
-                : Boolean(field.exportable),
-            )
-            .map((field) => ({
-              key: String(field.key),
-              label: String(field.label),
-              aliases: buildFieldAliases(String(field.key), String(field.label), departmentFieldAliases),
-            }));
-        }
+      if (fieldsError) {
+        console.error("[api/demands/export] load department fields error", fieldsError);
+      } else if (fields) {
+        dynamicColumns = buildDynamicExportColumns(fields as {
+          key: string | null;
+          label: string | null;
+          exportable?: boolean | null;
+        }[]);
       }
     }
 
