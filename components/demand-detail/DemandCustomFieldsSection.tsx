@@ -55,7 +55,10 @@ const FieldRenderer = React.memo(function FieldRenderer({
 
   return (
     <div className={field.type === "multiline" ? "sm:col-span-2" : ""}>
-      <div className="text-xs font-bold text-slate-400 uppercase mb-1">{field.label}</div>
+      <div className="text-xs font-bold text-slate-400 uppercase mb-1">
+        {field.label}
+        {field.required && isEditing && <span className="text-red-500 ml-1">*</span>}
+      </div>
       {isEditing ? (
         <>
           {field.type === "text" && (

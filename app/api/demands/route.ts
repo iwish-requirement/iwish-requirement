@@ -24,6 +24,7 @@ import {
   getCurrentBusinessPeriod,
 } from "../../../lib/businessDateRange";
 import { triggerCreativeDemandSheetSync } from "../../../lib/creativeDemandSheetSync";
+import { validateRequiredDemandFields } from "../../../lib/serverDemandRequiredFields";
 
 export const runtime = "edge";
 
@@ -1214,6 +1215,22 @@ export async function POST(req: NextRequest) {
     const assigneeCode = assigneeEmail?.split("@")[0]?.toUpperCase();
 
     const requestCustomFields = sanitizeRequesterCustomFields(customFields, dept as any);
+    const requiredFieldsValidation = await validateRequiredDemandFields({
+      departmentId: departmentIdNumber,
+      demandTypeId,
+      templateId: (demandType as any)?.field_template_id || null,
+      customFields: requestCustomFields,
+    });
+    if (!requiredFieldsValidation.valid) {
+      return NextResponse.json(
+        {
+          error: "missing_required_fields",
+          detail: `请填写必填字段：${requiredFieldsValidation.missing.join("、")}`,
+          fields: requiredFieldsValidation.missing,
+        },
+        { status: 400 },
+      );
+    }
 
     const fields = {
       code,
