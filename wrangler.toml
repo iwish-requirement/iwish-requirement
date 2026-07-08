@@ -1,6 +1,5 @@
-# Cloudflare Pages configuration for next-on-pages builds.
+# Keep Cloudflare Pages build settings and environment variables in the dashboard.
+# Do not add pages_build_output_dir here unless all Pages config is migrated to Wrangler.
 
-name = "iwish-requirement"
-pages_build_output_dir = ".vercel/output/static"
 compatibility_date = "2025-12-23"
 compatibility_flags = ["nodejs_compat"]
