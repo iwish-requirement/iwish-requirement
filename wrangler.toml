@@ -1,5 +1,6 @@
-# Cloudflare Workers/Pages configuration
-# 固化 Node.js 兼容配置，供 next-on-pages 生成的 Worker 使用
+# Cloudflare Pages configuration for next-on-pages builds.
 
+name = "iwish-requirement"
+pages_build_output_dir = ".vercel/output/static"
 compatibility_date = "2025-12-23"
 compatibility_flags = ["nodejs_compat"]
