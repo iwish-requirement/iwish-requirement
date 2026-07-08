@@ -11,11 +11,6 @@ import {
   resolveAssignedStatusValue,
   resolveDepartmentDemandRules,
 } from "../../../lib/departmentDemandRules";
-import {
-  getCreativeDemandTypeCodes,
-  resolvePositionAccessFromRows,
-  resolveCreativeDemandRole,
-} from "../../../lib/creativeDemandAccess";
 import { sanitizeRequesterCustomFields } from "../../../lib/internalDemandFields";
 import {
   getBusinessDayEndExclusiveIso,
@@ -340,75 +335,6 @@ export async function GET(req: NextRequest) {
     const dueFrom = url.searchParams.get("dueFrom");
     const dueTo = url.searchParams.get("dueTo");
     const scopeParam = url.searchParams.get("scope");
-    const creativeDeptResult = await supabaseAdmin
-      .from("departments")
-      .select("id")
-      .eq("slug", "design")
-      .maybeSingle();
-    const creativeDepartmentId =
-      creativeDeptResult.data && typeof creativeDeptResult.data.id === "number"
-        ? (creativeDeptResult.data.id as number)
-        : null;
-    const isCreativeMember =
-      !!creativeDepartmentId && currentUser.departmentId === creativeDepartmentId;
-    const creativeDemandRole = isCreativeMember ? resolveCreativeDemandRole(currentUser) : null;
-    let creativeAllowedDemandTypeIds: number[] | null = null;
-    let positionAccessScope: "all" | "demand_types" | null = null;
-    let positionDemandTypeCodes: string[] = [];
-
-    if (isCreativeMember && currentUser.position) {
-      const { data: positionRows, error: positionRowsError } = await supabaseAdmin
-        .from("user_positions")
-        .select("code, access_scope, demand_type_codes")
-        .eq("department_id", creativeDepartmentId)
-        .eq("is_active", true);
-
-      if (positionRowsError) {
-        console.error("[api/demands] load user position access error", positionRowsError);
-        return NextResponse.json(
-          { error: "failed to load position access", detail: positionRowsError.message },
-          { status: 500 },
-        );
-      }
-
-      const positionAccess = resolvePositionAccessFromRows(currentUser.position, positionRows || []);
-      if (positionAccess) {
-        positionAccessScope = positionAccess.accessScope;
-        positionDemandTypeCodes = positionAccess.demandTypeCodes;
-      }
-    }
-
-    if (
-      creativeDepartmentId &&
-      ((positionAccessScope === "demand_types" && positionDemandTypeCodes.length >= 0) ||
-        (!positionAccessScope && creativeDemandRole && creativeDemandRole !== "all"))
-    ) {
-      const allowedCodes = positionAccessScope === "demand_types"
-        ? positionDemandTypeCodes
-        : getCreativeDemandTypeCodes(creativeDemandRole);
-      if (allowedCodes.length === 0) {
-        creativeAllowedDemandTypeIds = [];
-      } else {
-        const { data: creativeTypes, error: creativeTypesError } = await supabaseAdmin
-          .from("demand_types")
-          .select("id")
-          .eq("department_id", creativeDepartmentId)
-          .in("code", allowedCodes);
-
-        if (creativeTypesError) {
-          console.error("[api/demands] load creative demand type access error", creativeTypesError);
-          return NextResponse.json(
-            { error: "failed to load creative demand access", detail: creativeTypesError.message },
-            { status: 500 },
-          );
-        }
-
-        creativeAllowedDemandTypeIds = ((creativeTypes || []) as { id: number }[])
-          .map((row) => row.id)
-          .filter((id) => typeof id === "number" && Number.isFinite(id));
-      }
-    }
-
     const customFieldFilters: { key: string; value: string }[] = [];
     for (const [key, value] of url.searchParams.entries()) {
       if (!key.startsWith("cf_")) continue;
@@ -468,15 +394,6 @@ export async function GET(req: NextRequest) {
           query = query.eq("department_id", asNumber);
         } else {
           query = query.eq("fields->>departmentKey", departmentIdParam);
-        }
-      }
-
-      if (creativeDepartmentId && creativeAllowedDemandTypeIds) {
-        query = query.eq("department_id", creativeDepartmentId);
-        if (creativeAllowedDemandTypeIds.length > 0) {
-          query = query.in("demand_type_id", creativeAllowedDemandTypeIds);
-        } else {
-          query = query.eq("id", -1);
         }
       }
 
