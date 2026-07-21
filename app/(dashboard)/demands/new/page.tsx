@@ -6,7 +6,11 @@ import { ArrowLeft, Upload, Sparkles, ClipboardList, Clock3 } from 'lucide-react
 import { Department, FieldDefinition, Priority, type DemandType, type DepartmentWorkflowConfig } from '../../../../types';
 import { getSupabaseClient } from '../../../../lib/supabase';
 import { authorizedFetch } from '../../../../lib/authFetch';
-import { findMissingRequiredDemandFields } from '../../../../lib/demandRequiredFieldUtils';
+import {
+  findInvalidPositiveIntegerDemandFields,
+  findMissingRequiredDemandFields,
+  isQuantityDemandField,
+} from '../../../../lib/demandRequiredFieldUtils';
 
 type QuickTemplate = {
   id: number;
@@ -648,6 +652,11 @@ export default function NewDemandPage() {
       setError(`请填写必填字段：${missingRequiredFields.join('、')}`);
       return;
     }
+    const invalidQuantityFields = findInvalidPositiveIntegerDemandFields(dynamicFields, formData);
+    if (invalidQuantityFields.length > 0) {
+      setError(`数量字段必须填写大于或等于 1 的整数：${invalidQuantityFields.join('、')}`);
+      return;
+    }
     if (!creatorEmail) {
       setError('当前用户信息获取失败，请重新登录后再试');
       return;
@@ -675,7 +684,12 @@ export default function NewDemandPage() {
       if (!res.ok) {
         const text = await res.text();
         console.error('create demand error', text);
-        setError('创建需求失败，请稍后重试');
+        try {
+          const payload = JSON.parse(text) as { detail?: string };
+          setError(payload.detail || '创建需求失败，请稍后重试');
+        } catch {
+          setError('创建需求失败，请稍后重试');
+        }
         return;
       }
 
@@ -993,6 +1007,9 @@ export default function NewDemandPage() {
                       {field.type === 'number' && (
                         <input
                           type="number"
+                          min={isQuantityDemandField(field) ? 1 : undefined}
+                          step={isQuantityDemandField(field) ? 1 : undefined}
+                          inputMode={isQuantityDemandField(field) ? 'numeric' : 'decimal'}
                           placeholder={field.placeholder}
                           onChange={(e) => handleDynamicChange(field.id, e.target.value)}
                           className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"

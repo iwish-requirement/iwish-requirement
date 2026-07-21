@@ -89,7 +89,9 @@ interface DepartmentMemberStat {
   materialCount: number;
   completedMaterialCount?: number;
   imageMaterialCount?: number;
+  completedImageMaterialCount?: number;
   videoMaterialCount?: number;
+  completedVideoMaterialCount?: number;
   pageCount?: number;
   avgCycleDays: number;
   scoreAvg: number;
@@ -102,11 +104,14 @@ interface DepartmentMemberStatsMeta {
   monthBasisLabel: string;
   scheduledDateFieldKey: string | null;
   scheduledEnabled: boolean;
+  creativeUnifiedDelivery: boolean;
   deliveryColumns: {
     materialCount: boolean;
     completedMaterialCount: boolean;
     imageMaterialCount: boolean;
+    completedImageMaterialCount: boolean;
     videoMaterialCount: boolean;
+    completedVideoMaterialCount: boolean;
     pageCount: boolean;
   };
 }
@@ -122,11 +127,14 @@ const EMPTY_MEMBER_STATS_META: DepartmentMemberStatsMeta = {
   monthBasisLabel: "提交月份",
   scheduledDateFieldKey: null,
   scheduledEnabled: false,
+  creativeUnifiedDelivery: false,
   deliveryColumns: {
     materialCount: false,
     completedMaterialCount: false,
     imageMaterialCount: false,
+    completedImageMaterialCount: false,
     videoMaterialCount: false,
+    completedVideoMaterialCount: false,
     pageCount: false,
   },
 };
@@ -887,10 +895,20 @@ export default function StatsPage() {
                       <th className="py-2 px-4 font-medium whitespace-nowrap">已完成素材</th>
                     )}
                     {memberDeliveryColumns.imageMaterialCount && (
-                      <th className="py-2 px-4 font-medium whitespace-nowrap">平面素材</th>
+                      <th className="py-2 px-4 font-medium whitespace-nowrap">
+                        {memberStatsMeta?.creativeUnifiedDelivery ? "素材需求数量" : "平面素材"}
+                      </th>
+                    )}
+                    {memberDeliveryColumns.completedImageMaterialCount && (
+                      <th className="py-2 px-4 font-medium whitespace-nowrap">已完成素材数量</th>
                     )}
                     {memberDeliveryColumns.videoMaterialCount && (
-                      <th className="py-2 px-4 font-medium whitespace-nowrap">视频数量</th>
+                      <th className="py-2 px-4 font-medium whitespace-nowrap">
+                        {memberStatsMeta?.creativeUnifiedDelivery ? "视频需求数量" : "视频数量"}
+                      </th>
+                    )}
+                    {memberDeliveryColumns.completedVideoMaterialCount && (
+                      <th className="py-2 px-4 font-medium whitespace-nowrap">已完成视频数量</th>
                     )}
                     {memberDeliveryColumns.pageCount && (
                       <th className="py-2 px-4 font-medium whitespace-nowrap">页面数量</th>
@@ -929,8 +947,14 @@ export default function StatsPage() {
                       {memberDeliveryColumns.imageMaterialCount && (
                         <td className="py-2 px-4 text-slate-700">{m.imageMaterialCount ?? 0}</td>
                       )}
+                      {memberDeliveryColumns.completedImageMaterialCount && (
+                        <td className="py-2 px-4 text-slate-700">{m.completedImageMaterialCount ?? 0}</td>
+                      )}
                       {memberDeliveryColumns.videoMaterialCount && (
                         <td className="py-2 px-4 text-slate-700">{m.videoMaterialCount ?? 0}</td>
+                      )}
+                      {memberDeliveryColumns.completedVideoMaterialCount && (
+                        <td className="py-2 px-4 text-slate-700">{m.completedVideoMaterialCount ?? 0}</td>
                       )}
                       {memberDeliveryColumns.pageCount && (
                         <td className="py-2 px-4 text-slate-700">{m.pageCount ?? 0}</td>

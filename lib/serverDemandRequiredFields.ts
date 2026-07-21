@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "./supabaseAdmin";
 import {
+  findInvalidPositiveIntegerDemandFields,
   findMissingRequiredDemandFields,
   type DemandRequiredField,
 } from "./demandRequiredFieldUtils";
@@ -61,7 +62,10 @@ export async function validateRequiredDemandFields({
   demandTypeId,
   templateId,
   customFields,
-}: ValidateRequiredDemandFieldsInput): Promise<{ valid: true } | { valid: false; missing: string[] }> {
+}: ValidateRequiredDemandFieldsInput): Promise<
+  | { valid: true }
+  | { valid: false; missing: string[]; invalidPositiveIntegers: string[] }
+> {
   const resolvedTemplateId = await loadTemplateId(departmentId, demandTypeId, templateId);
   if (!resolvedTemplateId) {
     return { valid: true };
@@ -69,10 +73,9 @@ export async function validateRequiredDemandFields({
 
   const { data, error } = await supabaseAdmin
     .from("department_fields")
-    .select("key, label, required")
+    .select("key, label, type, required")
     .eq("department_id", departmentId)
     .eq("template_id", resolvedTemplateId)
-    .eq("required", true)
     .order("order_index", { ascending: true });
 
   if (error) {
@@ -82,9 +85,13 @@ export async function validateRequiredDemandFields({
   const requiredFields: DemandRequiredField[] = (data || []).map((field: any) => ({
     key: field.key as string | null,
     label: field.label as string | null,
+    type: field.type as string | null,
     required: !!field.required,
   }));
   const missing = findMissingRequiredDemandFields(requiredFields, customFields);
+  const invalidPositiveIntegers = findInvalidPositiveIntegerDemandFields(requiredFields, customFields);
 
-  return missing.length > 0 ? { valid: false, missing } : { valid: true };
+  return missing.length > 0 || invalidPositiveIntegers.length > 0
+    ? { valid: false, missing, invalidPositiveIntegers }
+    : { valid: true };
 }

@@ -1139,11 +1139,16 @@ export async function POST(req: NextRequest) {
       customFields: requestCustomFields,
     });
     if (!requiredFieldsValidation.valid) {
+      const hasInvalidQuantities = requiredFieldsValidation.invalidPositiveIntegers.length > 0;
       return NextResponse.json(
         {
-          error: "missing_required_fields",
-          detail: `请填写必填字段：${requiredFieldsValidation.missing.join("、")}`,
-          fields: requiredFieldsValidation.missing,
+          error: hasInvalidQuantities ? "invalid_quantity_fields" : "missing_required_fields",
+          detail: hasInvalidQuantities
+            ? `数量字段必须填写大于或等于 1 的整数：${requiredFieldsValidation.invalidPositiveIntegers.join("、")}`
+            : `请填写必填字段：${requiredFieldsValidation.missing.join("、")}`,
+          fields: hasInvalidQuantities
+            ? requiredFieldsValidation.invalidPositiveIntegers
+            : requiredFieldsValidation.missing,
         },
         { status: 400 },
       );

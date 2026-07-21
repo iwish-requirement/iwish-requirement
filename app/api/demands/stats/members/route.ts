@@ -26,7 +26,9 @@ interface DepartmentMemberStat {
   materialCount: number;
   completedMaterialCount: number;
   imageMaterialCount: number;
+  completedImageMaterialCount: number;
   videoMaterialCount: number;
+  completedVideoMaterialCount: number;
   pageCount: number;
   avgCycleDays: number;
   scoreAvg: number;
@@ -39,13 +41,22 @@ interface MemberStatsMeta {
   monthBasisLabel: string;
   scheduledDateFieldKey: string | null;
   scheduledEnabled: boolean;
+  creativeUnifiedDelivery: boolean;
   deliveryColumns: {
     materialCount: boolean;
     completedMaterialCount: boolean;
     imageMaterialCount: boolean;
+    completedImageMaterialCount: boolean;
     videoMaterialCount: boolean;
+    completedVideoMaterialCount: boolean;
     pageCount: boolean;
   };
+}
+
+function isCreativeDepartment(department: { name?: string | null; slug?: string | null } | null): boolean {
+  const slug = (department?.slug || "").trim().toLowerCase();
+  const name = (department?.name || "").trim().toLowerCase();
+  return slug === "design" || slug.includes("creative") || name.includes("创意") || name.includes("设计");
 }
 
 function hasValidScoreItems(rawItems: unknown): boolean {
@@ -70,6 +81,7 @@ function buildMemberStatsMeta(
     scheduledDateFieldKey: string | null;
     scheduledEnabled: boolean;
   },
+  creativeUnifiedDelivery: boolean,
 ): MemberStatsMeta {
   const fieldKeys = new Set(
     fieldRows
@@ -99,12 +111,15 @@ function buildMemberStatsMeta(
     monthBasisLabel: getStatsMonthBasisLabel(monthConfig.defaultMemberMonthBasis),
     scheduledDateFieldKey: monthConfig.scheduledDateFieldKey,
     scheduledEnabled: monthConfig.scheduledEnabled,
+    creativeUnifiedDelivery,
     deliveryColumns: {
-      materialCount: hasImageMaterialCount || hasVideoMaterialCount,
-      completedMaterialCount: hasImageMaterialCount || hasVideoMaterialCount,
-      imageMaterialCount: hasImageMaterialCount,
-      videoMaterialCount: hasVideoMaterialCount,
-      pageCount: hasPageCount,
+      materialCount: creativeUnifiedDelivery ? false : hasImageMaterialCount || hasVideoMaterialCount,
+      completedMaterialCount: creativeUnifiedDelivery ? false : hasImageMaterialCount || hasVideoMaterialCount,
+      imageMaterialCount: creativeUnifiedDelivery || hasImageMaterialCount,
+      completedImageMaterialCount: creativeUnifiedDelivery,
+      videoMaterialCount: creativeUnifiedDelivery || hasVideoMaterialCount,
+      completedVideoMaterialCount: creativeUnifiedDelivery,
+      pageCount: creativeUnifiedDelivery ? false : hasPageCount,
     },
   };
 }
@@ -155,7 +170,7 @@ export async function GET(req: NextRequest) {
     ] = await Promise.all([
       supabaseAdmin
         .from("users")
-        .select("id, name, email, role")
+        .select("id, name, email, role, status")
         .eq("department_id", departmentId),
       supabaseAdmin
         .from("score_records")
@@ -266,6 +281,9 @@ export async function GET(req: NextRequest) {
       fieldRows = (departmentFields || []) as { key: string | null }[];
     }
 
+    const creativeUnifiedDelivery = isCreativeDepartment(
+      (departmentResult.data || null) as { name?: string | null; slug?: string | null } | null,
+    );
     const meta = buildMemberStatsMeta(
       fieldRows,
       (scoreTemplateResult.data || null) as { items?: unknown } | null,
@@ -277,6 +295,7 @@ export async function GET(req: NextRequest) {
         } | null,
         fieldRows.map((field) => field.key || ""),
       ),
+      creativeUnifiedDelivery,
     );
 
     let demandsQuery = supabaseAdmin
@@ -346,6 +365,7 @@ export async function GET(req: NextRequest) {
       name: string | null;
       email: string | null;
       role: string | null;
+      status: string | null;
     }[];
 
     const scoreRows = (meta.scoringEnabled ? scoreRecordsResult.data || [] : []) as {
@@ -364,30 +384,43 @@ export async function GET(req: NextRequest) {
       materialCount: number;
       completedMaterialCount: number;
       imageMaterialCount: number;
+      completedImageMaterialCount: number;
       videoMaterialCount: number;
+      completedVideoMaterialCount: number;
       pageCount: number;
       cycleDurations: number[];
       scoreValues: number[];
     };
 
     const acc = new Map<number, MemberAccumulator>();
+    const createAccumulator = (): MemberAccumulator => ({
+      demandsAssignee: 0,
+      demandsCompleted: 0,
+      materialCount: 0,
+      completedMaterialCount: 0,
+      imageMaterialCount: 0,
+      completedImageMaterialCount: 0,
+      videoMaterialCount: 0,
+      completedVideoMaterialCount: 0,
+      pageCount: 0,
+      cycleDurations: [],
+      scoreValues: [],
+    });
+
+    if (creativeUnifiedDelivery) {
+      for (const user of userRows) {
+        if (typeof user.id === "number" && (user.status || "").toLowerCase() === "active") {
+          acc.set(user.id, createAccumulator());
+        }
+      }
+    }
 
     for (const row of demandRows) {
       if (!row.assignee_id) continue;
       const userId = row.assignee_id;
       let bucket = acc.get(userId);
       if (!bucket) {
-        bucket = {
-          demandsAssignee: 0,
-          demandsCompleted: 0,
-          materialCount: 0,
-          completedMaterialCount: 0,
-          imageMaterialCount: 0,
-          videoMaterialCount: 0,
-          pageCount: 0,
-          cycleDurations: [],
-          scoreValues: [],
-        };
+        bucket = createAccumulator();
         acc.set(userId, bucket);
       }
 
@@ -402,6 +435,8 @@ export async function GET(req: NextRequest) {
       if (statusGroups.completed.includes(status)) {
         bucket.demandsCompleted += 1;
         bucket.completedMaterialCount += deliveryCounts.materialCount;
+        bucket.completedImageMaterialCount += deliveryCounts.imageMaterialCount;
+        bucket.completedVideoMaterialCount += deliveryCounts.videoMaterialCount;
       }
 
       if (row.created_at && row.finished_at) {
@@ -418,17 +453,7 @@ export async function GET(req: NextRequest) {
       const userId = record.target_user_id;
       let bucket = acc.get(userId);
       if (!bucket) {
-        bucket = {
-          demandsAssignee: 0,
-          demandsCompleted: 0,
-          materialCount: 0,
-          completedMaterialCount: 0,
-          imageMaterialCount: 0,
-          videoMaterialCount: 0,
-          pageCount: 0,
-          cycleDurations: [],
-          scoreValues: [],
-        };
+        bucket = createAccumulator();
         acc.set(userId, bucket);
       }
 
@@ -444,7 +469,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const userMap = new Map<number, { id: number; name: string | null; email: string | null; role: string | null }>();
+    const userMap = new Map<
+      number,
+      { id: number; name: string | null; email: string | null; role: string | null; status: string | null }
+    >();
     for (const user of userRows) {
       if (typeof user.id === "number") {
         userMap.set(user.id, user);
@@ -474,7 +502,9 @@ export async function GET(req: NextRequest) {
         materialCount: bucket.materialCount,
         completedMaterialCount: bucket.completedMaterialCount,
         imageMaterialCount: bucket.imageMaterialCount,
+        completedImageMaterialCount: bucket.completedImageMaterialCount,
         videoMaterialCount: bucket.videoMaterialCount,
+        completedVideoMaterialCount: bucket.completedVideoMaterialCount,
         pageCount: bucket.pageCount,
         avgCycleDays,
         scoreAvg,

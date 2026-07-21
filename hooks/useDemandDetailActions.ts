@@ -2,7 +2,10 @@ import React from "react";
 import { type AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { authorizedFetch } from "../lib/authFetch";
 import { DemandStatus, type Demand, type FieldDefinition } from "../types";
-import { findMissingRequiredDemandFields } from "../lib/demandRequiredFieldUtils";
+import {
+  findInvalidPositiveIntegerDemandFields,
+  findMissingRequiredDemandFields,
+} from "../lib/demandRequiredFieldUtils";
 import { type AttachmentItem, type CommentAttachment, type DemandComment } from "../components/demand-detail/types";
 
 async function uploadCommentAttachments(
@@ -131,6 +134,11 @@ export function useDemandMutationActions({
       setSaveError(`请填写必填字段：${missingRequiredFields.join("、")}`);
       return;
     }
+    const invalidQuantityFields = findInvalidPositiveIntegerDemandFields(templateFields, draftCustomFields);
+    if (invalidQuantityFields.length > 0) {
+      setSaveError(`数量字段必须填写大于或等于 1 的整数：${invalidQuantityFields.join("、")}`);
+      return;
+    }
 
     setSaving(true);
     setSaveError(null);
@@ -151,7 +159,12 @@ export function useDemandMutationActions({
       if (!res.ok) {
         const text = await res.text();
         console.error("update demand error", text);
-        setSaveError("保存失败，请稍后重试");
+        try {
+          const payload = JSON.parse(text) as { detail?: string };
+          setSaveError(payload.detail || "保存失败，请稍后重试");
+        } catch {
+          setSaveError("保存失败，请稍后重试");
+        }
         return;
       }
 

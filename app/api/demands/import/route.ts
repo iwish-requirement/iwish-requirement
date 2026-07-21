@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest, ensureActiveUser } from "../../../../lib/serverAuth";
 import { DemandStatus, Priority } from "../../../../types";
+import {
+  findInvalidPositiveIntegerDemandFields,
+  findMissingRequiredDemandFields,
+} from "../../../../lib/demandRequiredFieldUtils";
 
 export const runtime = "edge";
 
@@ -186,12 +190,15 @@ export async function POST(req: NextRequest) {
       console.error("[api/demands/import] active template error", tplError);
     }
 
-    let dynamicFieldMap = new Map<string, { key: string; type: string }>();
+    let dynamicFieldMap = new Map<
+      string,
+      { key: string; label: string; type: string; required: boolean }
+    >();
 
     if (fieldTemplateId !== null) {
       const { data: fields, error: fieldsError } = await supabaseAdmin
         .from("department_fields")
-        .select("key, label, type, exportable")
+        .select("key, label, type, required, exportable")
         .eq("department_id", departmentIdNumber)
         .eq("template_id", fieldTemplateId)
         .order("order_index", { ascending: true });
@@ -200,11 +207,16 @@ export async function POST(req: NextRequest) {
         console.error("[api/demands/import] load fields error", fieldsError);
       } else if (fields) {
         for (const field of fields as any[]) {
+          if (field.exportable !== undefined && field.exportable !== null && !Boolean(field.exportable)) {
+            continue;
+          }
           const label = String(field.label || "").trim();
           if (!label) continue;
           dynamicFieldMap.set(label, {
             key: String(field.key),
+            label,
             type: String(field.type || "text"),
+            required: !!field.required,
           });
         }
       }
@@ -381,8 +393,8 @@ export async function POST(req: NextRequest) {
         const fieldType = fieldMeta.type;
 
         if (fieldType === "number") {
-          const num = Number.parseFloat(textValue);
-          if (!Number.isNaN(num)) {
+          const num = Number(textValue);
+          if (Number.isFinite(num)) {
             parsedValue = num;
           }
         } else if (fieldType === "boolean") {
@@ -399,6 +411,27 @@ export async function POST(req: NextRequest) {
         }
 
         customFields[fieldMeta.key] = parsedValue;
+      }
+
+      const importFields = Array.from(dynamicFieldMap.values());
+      const missingRequiredFields = findMissingRequiredDemandFields(importFields, customFields);
+      if (missingRequiredFields.length > 0) {
+        results.push({
+          rowNumber,
+          success: false,
+          message: `请填写必填字段：${missingRequiredFields.join("、")}`,
+        });
+        continue;
+      }
+
+      const invalidQuantityFields = findInvalidPositiveIntegerDemandFields(importFields, customFields);
+      if (invalidQuantityFields.length > 0) {
+        results.push({
+          rowNumber,
+          success: false,
+          message: `数量字段必须填写大于或等于 1 的整数：${invalidQuantityFields.join("、")}`,
+        });
+        continue;
       }
 
       const code = `REQ-${new Date().getFullYear()}-${Math.floor(Date.now() % 100000)

@@ -197,6 +197,19 @@ export default function DemandsPage() {
     setDynamicFilters({});
     setPage(1);
   };
+  const handleDepartmentFilterChange = (nextDepartmentId: string) => {
+    setSelectedDept(nextDepartmentId);
+    setSelectedStatus("all");
+    setSelectedPriority("all");
+    setSelectedDemandTypeId("");
+    setAssigneeUserId("");
+    setDynamicFilters({});
+    setWorkflowConfig(null);
+    setDeptUsers([]);
+    setDynamicFilterFields([]);
+    setDemandTypes([]);
+    setPage(1);
+  };
 
   useEffect(() => {
     const loadDepartments = async () => {
@@ -262,6 +275,8 @@ export default function DemandsPage() {
       return;
     }
 
+    let cancelled = false;
+
     const loadWorkflowConfig = async () => {
       try {
         const res = await authorizedFetch(
@@ -269,13 +284,13 @@ export default function DemandsPage() {
         );
         if (!res.ok) {
           console.error("load workflow config for demands list error", await res.text());
-          setWorkflowConfig(null);
+          if (!cancelled) setWorkflowConfig(null);
           return;
         }
         const json = await res.json();
         const cfg = (json.config || null) as DepartmentWorkflowConfig | null;
         if (!cfg || !Array.isArray(cfg.statuses) || !Array.isArray(cfg.priorities)) {
-          setWorkflowConfig(null);
+          if (!cancelled) setWorkflowConfig(null);
           return;
         }
         const sorted: DepartmentWorkflowConfig = {
@@ -283,15 +298,19 @@ export default function DemandsPage() {
           statuses: [...cfg.statuses].sort((a, b) => a.order - b.order),
           stats: cfg.stats,
         };
-        setWorkflowConfig(sorted);
+        if (!cancelled) setWorkflowConfig(sorted);
 
       } catch (e) {
         console.error("load workflow config for demands list error", e);
-        setWorkflowConfig(null);
+        if (!cancelled) setWorkflowConfig(null);
       }
     };
 
     loadWorkflowConfig();
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedDept]);
 
   useEffect(() => {
@@ -333,6 +352,7 @@ export default function DemandsPage() {
   useEffect(() => {
     if (selectedDept === "all") {
       setDeptUsers([]);
+      setDeptUsersLoading(false);
       setDynamicFilterFields([]);
       setDemandTypes([]);
       setSelectedDemandTypeId("");
@@ -340,6 +360,8 @@ export default function DemandsPage() {
       setAssigneeUserId("");
       return;
     }
+
+    let cancelled = false;
 
     const loadDeptMeta = async () => {
       try {
@@ -353,6 +375,7 @@ export default function DemandsPage() {
         if (fieldsRes.ok) {
           const json = await fieldsRes.json();
           const items = (json.items || []) as FieldDefinition[];
+          if (cancelled) return;
           setPreviewFieldLabels((prev) => {
             const next = { ...prev };
             for (const field of items) {
@@ -364,7 +387,7 @@ export default function DemandsPage() {
           setDynamicFilterFields(items.filter((f) => f.filterable));
         } else {
           console.error("load department fields for filters error", await fieldsRes.text());
-          setDynamicFilterFields([]);
+          if (!cancelled) setDynamicFilterFields([]);
         }
 
         if (usersRes.ok) {
@@ -374,33 +397,40 @@ export default function DemandsPage() {
             name: string | null;
             email: string | null;
           }[];
-          setDeptUsers(items);
+          if (!cancelled) setDeptUsers(items);
         } else {
           console.error("load department users for filters error", await usersRes.text());
-          setDeptUsers([]);
+          if (!cancelled) setDeptUsers([]);
         }
 
         if (demandTypesRes.ok) {
           const json = await demandTypesRes.json();
-          setDemandTypes(Array.isArray(json.items) ? json.items : []);
+          if (!cancelled) setDemandTypes(Array.isArray(json.items) ? json.items : []);
         } else {
-          setDemandTypes([]);
+          if (!cancelled) setDemandTypes([]);
         }
       } catch (e) {
         console.error("load department meta for filters error", e);
-        setDynamicFilterFields([]);
-        setDeptUsers([]);
-        setDemandTypes([]);
+        if (!cancelled) {
+          setDynamicFilterFields([]);
+          setDeptUsers([]);
+          setDemandTypes([]);
+        }
       } finally {
-        setDeptUsersLoading(false);
+        if (!cancelled) setDeptUsersLoading(false);
       }
     };
 
     loadDeptMeta();
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedDept]);
 
   useEffect(() => {
     const controller = new AbortController();
+    let cancelled = false;
 
     const fetchDemands = async () => {
       try {
@@ -469,14 +499,16 @@ export default function DemandsPage() {
         }
         const json = await res.json();
         const items = (json.items || []) as Demand[];
-        setDemands(items);
-        setTotal(json.total ?? 0);
+        if (!cancelled) {
+          setDemands(items);
+          setTotal(json.total ?? 0);
+        }
 
       } catch (e: any) {
         if (e?.name === "AbortError") return;
         console.error("load demands error", e);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
@@ -489,7 +521,10 @@ export default function DemandsPage() {
 
     fetchDemands();
 
-    return () => controller.abort();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [
     searchQuery,
     selectedDept,
@@ -1584,8 +1619,7 @@ export default function DemandsPage() {
                   className="w-full sm:flex-1 px-4 py-2.5 text-base border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   value={selectedDept}
                   onChange={(e) => {
-                    setSelectedDept(e.target.value);
-                    setPage(1);
+                    handleDepartmentFilterChange(e.target.value);
                   }}
                 >
                   <option value="all">所有部门</option>
@@ -2043,8 +2077,7 @@ export default function DemandsPage() {
                   className="w-full px-4 py-2.5 text-base border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   value={selectedDept}
                   onChange={(e) => {
-                    setSelectedDept(e.target.value);
-                    setPage(1);
+                    handleDepartmentFilterChange(e.target.value);
                   }}
                 >
                   <option value="all">所有部门</option>
