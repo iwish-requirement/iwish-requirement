@@ -3,6 +3,7 @@
 import React, { type Dispatch, type SetStateAction } from "react";
 import { Grid } from "lucide-react";
 import { type FieldDefinition } from "../../types";
+import { isQuantityDemandField } from "../../lib/demandRequiredFieldUtils";
 
 interface DemandCustomFieldsSectionProps {
   templateFields: FieldDefinition[];
@@ -72,6 +73,9 @@ const FieldRenderer = React.memo(function FieldRenderer({
           {field.type === "number" && (
             <input
               type="number"
+              min={isQuantityDemandField(field) ? 1 : undefined}
+              step={isQuantityDemandField(field) ? 1 : undefined}
+              inputMode={isQuantityDemandField(field) ? "numeric" : "decimal"}
               value={value as string}
               onChange={(e) => updateFieldValue(e.target.value)}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
