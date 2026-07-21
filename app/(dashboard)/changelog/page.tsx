@@ -6,6 +6,7 @@ import {
   ClipboardList,
   FileSpreadsheet,
   Filter,
+  History,
   LineChart,
   MessageSquareText,
   MousePointerClick,
@@ -35,6 +36,36 @@ interface ReleaseNote {
 const releases: ReleaseNote[] = [
   {
     date: "2026-07-21",
+    title: "需求状态变更留痕与 ID 修复安全加固",
+    summary:
+      "记录需求状态、执行人与关键时间的每次变化，并取消列表加载时自动修改历史需求数据。",
+    audience: ["创意部", "设计团队", "需求提交人", "需求管理员"],
+    items: [
+      {
+        title: "状态变更可追溯",
+        description:
+          "状态、执行人、分配时间、开始时间、完成时间、关闭时间和延期时间变化时，会保存操作人、操作时间以及变更前后的值。",
+        impact: "需求被重新分配、回退或再次完成时，可以准确核对变化来源，不再只能依赖当前结果判断。",
+        icon: History,
+      },
+      {
+        title: "详情页展示变更记录",
+        description:
+          "需求详情新增状态变更记录，集中展示状态、执行人和关键时间的历史变化。",
+        impact: "设计师和管理员可在当前需求内直接核对操作历史；上线前没有日志的历史操作不会被猜测补写。",
+        icon: ClipboardList,
+      },
+      {
+        title: "ID 修复改为受控操作",
+        description:
+          "进入需求列表不再自动修改历史 ID；管理员手动修复时会逐条留痕，并校验状态、执行人、分配时间和完成时间保持不变。",
+        impact: "页面浏览不再产生隐式数据写入，修复异常会被拒绝并回滚。",
+        icon: ShieldCheck,
+      },
+    ],
+  },
+  {
+    date: "2026-07-21",
     title: "需求编号、筛选记忆与待办排序修复",
     summary:
       "修复重复需求编号导致的状态和排期更新失败，记住列表筛选条件，并优先展示尚未完成的需求。",
@@ -43,7 +74,7 @@ const releases: ReleaseNote[] = [
       {
         title: "需求编号不再重复",
         description:
-          "复制和新建需求改用随机唯一编号，列表与详情操作使用内部记录 ID 精确定位；管理员首次打开需求列表时会自动修复历史重复编号。",
+          "复制和新建需求改用随机唯一编号，列表与详情操作使用内部记录 ID 精确定位；历史重复编号改为由管理员通过受控操作修复。",
         impact: "INNOVV 视频等与复制需求编号碰撞的记录，可以正常保存排期、更新状态和编辑详情。",
         icon: RefreshCcw,
       },

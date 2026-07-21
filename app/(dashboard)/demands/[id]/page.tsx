@@ -15,6 +15,7 @@ import ConfirmDangerModal from '../../../../components/demand-detail/ConfirmDang
 import DemandCustomFieldsSection from '../../../../components/demand-detail/DemandCustomFieldsSection';
 import ImagePreviewLightbox from '../../../../components/demand-detail/ImagePreviewLightbox';
 import DemandSidebarSections from '../../../../components/demand-detail/DemandSidebarSections';
+import DemandStateHistory from '../../../../components/demand-detail/DemandStateHistory';
 import {
   type AttachmentItem,
   type CommentAttachment,
@@ -878,6 +879,20 @@ export default function DemandDetailPage() {
             setShowMainEmojiPicker={setShowMainEmojiPicker}
             handleStartEditComment={handleStartEditComment}
             handleAddComment={handleAddComment}
+          />
+
+          <DemandStateHistory
+            demandIdentifier={String(demand.databaseId || id)}
+            refreshKey={[
+              demand.status,
+              demand.assigneeUserId || '',
+              demand.assignedAt || '',
+              demand.finishedAt || '',
+              demand.closedAt || '',
+            ].join('|')}
+            statusLabels={Object.fromEntries(
+              (workflowConfig?.statuses || []).map((status) => [status.value, status.label]),
+            )}
           />
         </div>
 

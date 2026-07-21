@@ -13,6 +13,8 @@ import { findInternalDemandFieldKeysInPayload } from "../../../../lib/internalDe
 import { triggerCreativeDemandSheetSync } from "../../../../lib/creativeDemandSheetSync";
 import { validateRequiredDemandFields } from "../../../../lib/serverDemandRequiredFields";
 import { applyDemandIdentifierFilter } from "../../../../lib/demandIdentifier";
+import { writeAuditLog } from "../../../../lib/audit";
+import { buildDemandStateChangedFields } from "../../../../lib/demandStateAudit";
 
 export const runtime = "edge";
 
@@ -620,6 +622,21 @@ export async function PATCH(
         { error: "failed to update demand", detail: error?.message ?? "update failed" },
         { status: 500 }
       );
+    }
+
+    const stateChangedFields = buildDemandStateChangedFields(existing, data);
+    if (Object.keys(stateChangedFields).length > 0) {
+      await writeAuditLog({
+        userId: authResult.user?.id,
+        entityType: "demand",
+        entityId: existing.id as number,
+        action: "state_change",
+        changedFields: stateChangedFields,
+        metadata: {
+          code: String((data.fields as Record<string, unknown> | null)?.code || ""),
+          source: "demand_patch",
+        },
+      });
     }
 
     const demand = await enrichDemandUsers(mapRowToDemand(data), data);
