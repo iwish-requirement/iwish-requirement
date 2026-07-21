@@ -686,8 +686,8 @@ export default function Dashboard() {
             )}
             {recentDemands.map((demand) => (
               <div
-                key={demand.id}
-                onClick={() => router.push(`/demands/${demand.id}`)}
+                key={demand.databaseId ?? demand.id}
+                onClick={() => router.push(`/demands/${demand.databaseId ?? demand.id}`)}
                 className="p-5 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between group gap-4 cursor-pointer"
               >
                 <div className="flex gap-4 items-start">

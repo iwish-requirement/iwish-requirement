@@ -9,14 +9,9 @@ import {
 } from "../../../../../../lib/departmentDemandRules";
 import { sanitizeRequesterCustomFields } from "../../../../../../lib/internalDemandFields";
 import { validateRequiredDemandFields } from "../../../../../../lib/serverDemandRequiredFields";
+import { makeDemandCode } from "../../../../../../lib/demandCode";
 
 export const runtime = "edge";
-
-function makeDemandCode() {
-  return `REQ-${new Date().getFullYear()}-${Math.floor(Date.now() % 100000)
-    .toString()
-    .padStart(5, "0")}`;
-}
 
 export async function POST(
   req: NextRequest,
@@ -164,7 +159,10 @@ export async function POST(
     });
 
     return NextResponse.json({
-      demand: { id: ((demand.fields as any)?.code as string) || String(demand.id) },
+      demand: {
+        databaseId: demand.id as number,
+        id: ((demand.fields as any)?.code as string) || String(demand.id),
+      },
     }, { status: 201 });
   } catch (error: any) {
     console.error("[api/demands/drafts/:id/confirm] unexpected error", error);

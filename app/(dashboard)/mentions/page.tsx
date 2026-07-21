@@ -10,6 +10,7 @@ interface MentionItem {
   content: string;
   createdAt: string;
   authorLabel: string;
+  demandDatabaseId: number | null;
   demandCode: string;
   demandTitle: string;
   parentId?: number | null;
@@ -61,10 +62,11 @@ export default function MentionsPage() {
   };
 
   const handleOpenMention = (item: MentionItem) => {
-    if (!item.demandCode) {
+    const demandIdentifier = item.demandDatabaseId ?? item.demandCode;
+    if (!demandIdentifier) {
       return;
     }
-    router.push(`/demands/${item.demandCode}#comment-${item.id}`);
+    router.push(`/demands/${demandIdentifier}#comment-${item.id}`);
   };
 
   return (

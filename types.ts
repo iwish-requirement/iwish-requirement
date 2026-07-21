@@ -72,6 +72,7 @@ export interface User {
 
 export interface Demand {
   id: string;
+  databaseId?: number;
   title: string;
   description: string;
   departmentId: string;

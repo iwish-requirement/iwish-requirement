@@ -61,6 +61,7 @@ export async function GET(
       .map((id) => ({ id, name: deptMap.get(id) || "未命名部门" }));
 
     const items = demands.slice(0, 50).map((row) => ({
+      databaseId: row.id as number,
       id: ((row.fields as any)?.code as string) || `REQ-${String(row.id).padStart(4, "0")}`,
       title: row.title,
       status: row.status,

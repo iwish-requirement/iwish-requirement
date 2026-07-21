@@ -7,14 +7,9 @@ import {
   resolveDepartmentDemandRules,
 } from "../../../../../lib/departmentDemandRules";
 import { sanitizeRequesterCustomFields } from "../../../../../lib/internalDemandFields";
+import { makeDemandCode } from "../../../../../lib/demandCode";
 
 export const runtime = "edge";
-
-function makeDemandCode() {
-  return `REQ-${new Date().getFullYear()}-${Math.floor(Date.now() % 100000)
-    .toString()
-    .padStart(5, "0")}`;
-}
 
 export async function POST(req: NextRequest) {
   try {

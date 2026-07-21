@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../../lib/supabaseAdmin';
+import { applyDemandIdentifierFilter } from '../../../../../../lib/demandIdentifier';
 
 export const runtime = 'edge';
 
@@ -37,11 +38,10 @@ export async function DELETE(
 
     const [{ data: demand, error: demandError }, { data: user, error: userError }] =
       await Promise.all([
-        supabaseAdmin
-          .from('demands')
-          .select('id')
-          .eq('fields->>code', code)
-          .maybeSingle(),
+        applyDemandIdentifierFilter(
+          supabaseAdmin.from('demands').select('id'),
+          code,
+        ).maybeSingle(),
         supabaseAdmin
           .from('users')
           .select('id, email')
@@ -161,11 +161,10 @@ export async function PATCH(
 
     const [{ data: demand, error: demandError }, { data: user, error: userError }] =
       await Promise.all([
-        supabaseAdmin
-          .from('demands')
-          .select('id')
-          .eq('fields->>code', code)
-          .maybeSingle(),
+        applyDemandIdentifierFilter(
+          supabaseAdmin.from('demands').select('id'),
+          code,
+        ).maybeSingle(),
         supabaseAdmin
           .from('users')
           .select('id, email')
