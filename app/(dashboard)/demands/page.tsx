@@ -25,6 +25,7 @@ import Badge from "../../../components/ui/Badge";
 import Modal from "../../../components/ui/Modal";
 
 const DEMAND_FILTERS_STORAGE_KEY = "iwish:demand-list-filters:v1";
+const DEMAND_CODE_REPAIR_STORAGE_KEY = "iwish:demand-code-repair:2026-07-21";
 
 type PersistedDemandFilters = {
   relationshipView?: "all" | "created" | "assigned";
@@ -366,6 +367,60 @@ export default function DemandsPage() {
 
     loadCurrentUser();
   }, []);
+
+  useEffect(() => {
+    if (currentUserRole !== "admin") {
+      return;
+    }
+
+    try {
+      if (window.localStorage.getItem(DEMAND_CODE_REPAIR_STORAGE_KEY) === "done") {
+        return;
+      }
+    } catch (error) {
+      console.error("read demand code repair marker error", error);
+    }
+
+    let cancelled = false;
+    const repairDuplicateCodes = async () => {
+      try {
+        const res = await authorizedFetch("/api/admin/demands/repair-duplicate-codes", {
+          method: "POST",
+        });
+        if (!res.ok) {
+          console.error("repair duplicate demand codes error", await res.text());
+          return;
+        }
+
+        const json = await res.json();
+        const repairs = Array.isArray(json.repairs)
+          ? (json.repairs as { demandId: number; code: string }[])
+          : [];
+        if (!cancelled && repairs.length > 0) {
+          const codeByDatabaseId = new Map(repairs.map((item) => [item.demandId, item.code]));
+          const applyRepairs = (demand: Demand): Demand => {
+            const repairedCode = demand.databaseId ? codeByDatabaseId.get(demand.databaseId) : undefined;
+            return repairedCode ? { ...demand, id: repairedCode } : demand;
+          };
+          setDemands((previous) => previous.map(applyRepairs));
+          setPreviewDemand((previous) => (previous ? applyRepairs(previous) : previous));
+        }
+
+        try {
+          window.localStorage.setItem(DEMAND_CODE_REPAIR_STORAGE_KEY, "done");
+        } catch (error) {
+          console.error("persist demand code repair marker error", error);
+        }
+      } catch (error) {
+        console.error("repair duplicate demand codes error", error);
+      }
+    };
+
+    repairDuplicateCodes();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserRole]);
 
   useEffect(() => {
     if (!filtersHydrated) {
