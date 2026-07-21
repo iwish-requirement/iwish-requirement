@@ -143,7 +143,7 @@ export function useDemandMutationActions({
     setSaving(true);
     setSaveError(null);
     try {
-      const res = await authorizedFetch(`/api/demands/${demand.id}`, {
+      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -179,6 +179,7 @@ export function useDemandMutationActions({
     }
   }, [
     demand,
+    id,
     draftCustomFields,
     draftDescription,
     draftDueDate,
@@ -199,7 +200,7 @@ export function useDemandMutationActions({
     setStatusUpdating(true);
     setStatusUpdateError(null);
     try {
-      const res = await authorizedFetch(`/api/demands/${demand.id}`, {
+      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -224,7 +225,7 @@ export function useDemandMutationActions({
     } finally {
       setStatusUpdating(false);
     }
-  }, [demand, setDemand, setDraftStatus, setStatusUpdateError, setStatusUpdating]);
+  }, [demand, id, setDemand, setDraftStatus, setStatusUpdateError, setStatusUpdating]);
 
   const handleAssignAssignee = React.useCallback(async (nextAssigneeEmail: string) => {
     if (!demand || !nextAssigneeEmail.trim()) return;
@@ -232,7 +233,7 @@ export function useDemandMutationActions({
     setAssigningAssignee(true);
     setAssignError(null);
     try {
-      const res = await authorizedFetch(`/api/demands/${demand.id}`, {
+      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -257,7 +258,7 @@ export function useDemandMutationActions({
     } finally {
       setAssigningAssignee(false);
     }
-  }, [demand, setAssignError, setAssigningAssignee, setDemand, setDraftStatus]);
+  }, [demand, id, setAssignError, setAssigningAssignee, setDemand, setDraftStatus]);
 
   return {
     handleDeleteDemand,

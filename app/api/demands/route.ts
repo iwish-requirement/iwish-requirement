@@ -20,6 +20,7 @@ import {
 } from "../../../lib/businessDateRange";
 import { triggerCreativeDemandSheetSync } from "../../../lib/creativeDemandSheetSync";
 import { validateRequiredDemandFields } from "../../../lib/serverDemandRequiredFields";
+import { makeDemandCode } from "../../../lib/demandCode";
 
 export const runtime = "edge";
 
@@ -176,6 +177,7 @@ function mapRowToDemand(row: any): Demand {
 
   return {
     id: code,
+    databaseId: typeof row.id === "number" ? row.id : undefined,
     title: row.title as string,
     description,
     departmentId,
@@ -929,6 +931,7 @@ export async function GET(req: NextRequest) {
       supabaseAdmin
         .from("demands")
         .select(DEMAND_LIST_SELECT, { count: "exact" })
+        .order("finished_at", { ascending: false, nullsFirst: true })
         .order("created_at", { ascending: false }),
     );
 
@@ -1122,11 +1125,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const code =
-      (body.code as string | undefined)?.trim() ||
-      `REQ-${new Date().getFullYear()}-${Math.floor(Date.now() % 100000)
-        .toString()
-        .padStart(5, "0")}`;
+    const code = makeDemandCode();
 
     const creatorCode = creatorEmail.split("@")[0]?.toUpperCase();
     const assigneeCode = assigneeEmail?.split("@")[0]?.toUpperCase();
@@ -1267,7 +1266,9 @@ export async function POST(req: NextRequest) {
         process.env.VITE_PUBLIC_URL ||
         "";
       const baseUrl = baseUrlEnv.replace(/\/+$/, "");
-      const link = baseUrl && demand.id ? `${baseUrl}/demands/${encodeURIComponent(demand.id)}` : "";
+      const link = baseUrl && demand.databaseId
+        ? `${baseUrl}/demands/${encodeURIComponent(String(demand.databaseId))}`
+        : "";
 
       const priorityLabelForMessage = resolvePriorityLabelForMessage(
         demand.priority as any,

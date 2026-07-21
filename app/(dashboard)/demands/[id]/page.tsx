@@ -355,7 +355,7 @@ export default function DemandDetailPage() {
   const handleCopyDemand = async () => {
     if (!demand) return;
     try {
-      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(demand.id)}/copy`, {
+      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(id)}/copy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -365,7 +365,7 @@ export default function DemandDetailPage() {
         return;
       }
       const json = await res.json();
-      const nextId = json?.demand?.id as string | undefined;
+      const nextId = String(json?.demand?.databaseId ?? json?.demand?.id ?? '');
       if (nextId) {
         router.push(`/demands/${nextId}`);
       }
@@ -400,7 +400,7 @@ export default function DemandDetailPage() {
     setScheduledStartSaving(true);
     setScheduledStartError(null);
     try {
-      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(demand.id)}`, {
+      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

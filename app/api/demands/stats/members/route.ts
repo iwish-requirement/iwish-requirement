@@ -119,7 +119,7 @@ function buildMemberStatsMeta(
       completedImageMaterialCount: creativeUnifiedDelivery,
       videoMaterialCount: creativeUnifiedDelivery || hasVideoMaterialCount,
       completedVideoMaterialCount: creativeUnifiedDelivery,
-      pageCount: creativeUnifiedDelivery ? false : hasPageCount,
+      pageCount: hasPageCount,
     },
   };
 }

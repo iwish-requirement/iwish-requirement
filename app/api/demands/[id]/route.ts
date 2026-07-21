@@ -12,6 +12,7 @@ import { loadEffectivePermissionsForUser } from "../../../../lib/serverPermissio
 import { findInternalDemandFieldKeysInPayload } from "../../../../lib/internalDemandFields";
 import { triggerCreativeDemandSheetSync } from "../../../../lib/creativeDemandSheetSync";
 import { validateRequiredDemandFields } from "../../../../lib/serverDemandRequiredFields";
+import { applyDemandIdentifierFilter } from "../../../../lib/demandIdentifier";
 
 export const runtime = "edge";
 
@@ -110,6 +111,7 @@ function mapRowToDemand(row: any): Demand {
 
   return {
     id: code,
+    databaseId: typeof row.id === "number" ? row.id : undefined,
     title: row.title as string,
     description,
     departmentId,
@@ -154,7 +156,7 @@ function normalizeOptionalId(value: unknown): number | null | undefined {
 }
 
 function buildStatusTimestampUpdates(status: string | undefined, existing: any, statusGroups?: DemandStatusGroups) {
-  const updates: Record<string, string> = {};
+  const updates: Record<string, string | null> = {};
   if (!status) return updates;
   const normalized = status.toLowerCase();
   const now = new Date().toISOString();
@@ -175,8 +177,14 @@ function buildStatusTimestampUpdates(status: string | undefined, existing: any, 
   if (isCompleted && !existing.finished_at) {
     updates.finished_at = now;
   }
+  if (!isCompleted && existing.finished_at) {
+    updates.finished_at = null;
+  }
   if (normalized === "closed" && !existing.closed_at) {
     updates.closed_at = now;
+  }
+  if (normalized !== "closed" && existing.closed_at) {
+    updates.closed_at = null;
   }
 
   return updates;
@@ -278,11 +286,10 @@ export async function GET(
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
 
-    const { data, error } = await supabaseAdmin
-      .from("demands")
-      .select(DEMAND_DETAIL_SELECT)
-      .eq("fields->>code", id)
-      .maybeSingle();
+    const { data, error } = await applyDemandIdentifierFilter(
+      supabaseAdmin.from("demands").select(DEMAND_DETAIL_SELECT),
+      id,
+    ).maybeSingle();
 
     if (error) {
       console.error("[api/demands/:id] query error", error);
@@ -417,11 +424,10 @@ export async function PATCH(
       );
     }
 
-    const { data: existing, error: loadError } = await supabaseAdmin
-      .from("demands")
-      .select(DEMAND_DETAIL_SELECT)
-      .eq("fields->>code", id)
-      .maybeSingle();
+    const { data: existing, error: loadError } = await applyDemandIdentifierFilter(
+      supabaseAdmin.from("demands").select(DEMAND_DETAIL_SELECT),
+      id,
+    ).maybeSingle();
 
     if (loadError) {
       console.error("[api/demands/:id] load error", loadError);
@@ -639,7 +645,9 @@ export async function PATCH(
         process.env.VITE_PUBLIC_URL ||
         "";
       const baseUrl = baseUrlEnv.replace(/\/+$/, "");
-      const link = baseUrl && demand.id ? `${baseUrl}/demands/${encodeURIComponent(demand.id)}` : "";
+      const link = baseUrl && demand.databaseId
+        ? `${baseUrl}/demands/${encodeURIComponent(String(demand.databaseId))}`
+        : "";
       const prefix = ((process.env.WECOM_MESSAGE_PREFIX as string | undefined) || "【需求系统】")
         .toString()
         .trim();
@@ -702,7 +710,9 @@ export async function PATCH(
                 process.env.VITE_PUBLIC_URL ||
                 "";
               const baseUrl = baseUrlEnv.replace(/\/+$/, "");
-              const link = baseUrl && demand.id ? `${baseUrl}/demands/${encodeURIComponent(demand.id)}` : "";
+              const link = baseUrl && demand.databaseId
+                ? `${baseUrl}/demands/${encodeURIComponent(String(demand.databaseId))}`
+                : "";
 
               const prefix = ((process.env.WECOM_MESSAGE_PREFIX as string | undefined) || "【需求系统】").toString().trim();
 
@@ -761,11 +771,10 @@ export async function DELETE(
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
 
-    const { data: existing, error: loadError } = await supabaseAdmin
-      .from("demands")
-      .select("id, creator_id")
-      .eq("fields->>code", id)
-      .maybeSingle();
+    const { data: existing, error: loadError } = await applyDemandIdentifierFilter(
+      supabaseAdmin.from("demands").select("id, creator_id"),
+      id,
+    ).maybeSingle();
 
     if (loadError) {
       console.error("[api/demands/:id] load error", loadError);

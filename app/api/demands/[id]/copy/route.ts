@@ -8,14 +8,10 @@ import {
   resolveDepartmentDemandRules,
 } from "../../../../../lib/departmentDemandRules";
 import { sanitizeRequesterCustomFields } from "../../../../../lib/internalDemandFields";
+import { makeDemandCode } from "../../../../../lib/demandCode";
+import { applyDemandIdentifierFilter } from "../../../../../lib/demandIdentifier";
 
 export const runtime = "edge";
-
-function makeDemandCode() {
-  return `REQ-${new Date().getFullYear()}-${Math.floor(Date.now() % 100000)
-    .toString()
-    .padStart(5, "0")}`;
-}
 
 export async function POST(
   req: NextRequest,
@@ -29,15 +25,16 @@ export async function POST(
     const permError = await ensureHasPermission(authResult.user, "demand.create");
     if (permError) return permError;
 
-    const sourceCode = context.params.id;
+    const sourceIdentifier = context.params.id;
     const body = await req.json().catch(() => ({}));
     const titleOverride = ((body.title as string | undefined) || "").trim();
 
-    const { data: source, error: sourceError } = await supabaseAdmin
-      .from("demands")
-      .select("id, department_id, customer_id, project_id, demand_type_id, priority, title, fields, field_template_id")
-      .eq("fields->>code", sourceCode)
-      .maybeSingle();
+    const { data: source, error: sourceError } = await applyDemandIdentifierFilter(
+      supabaseAdmin
+        .from("demands")
+        .select("id, department_id, customer_id, project_id, demand_type_id, priority, title, fields, field_template_id"),
+      sourceIdentifier,
+    ).maybeSingle();
 
     if (sourceError) {
       console.error("[api/demands/:id/copy] load source error", sourceError);
@@ -99,11 +96,12 @@ export async function POST(
       entityType: "demand",
       entityId: inserted.id as number,
       action: "copy",
-      metadata: { sourceDemandId: source.id, sourceCode },
+      metadata: { sourceDemandId: source.id, sourceIdentifier },
     });
 
     return NextResponse.json({
       demand: {
+        databaseId: inserted.id as number,
         id: ((inserted.fields as any)?.code as string) || String(inserted.id),
       },
     }, { status: 201 });

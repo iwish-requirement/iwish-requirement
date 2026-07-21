@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../../../lib/supabaseAdmin';
+import { applyDemandIdentifierFilter } from '../../../../../../../lib/demandIdentifier';
 
 export const runtime = 'edge';
 
@@ -74,11 +75,10 @@ export async function POST(
     }
 
     const [demandResult, commentResult, userResult] = await Promise.all([
-      supabaseAdmin
-        .from('demands')
-        .select('id')
-        .eq('fields->>code', code)
-        .maybeSingle(),
+      applyDemandIdentifierFilter(
+        supabaseAdmin.from('demands').select('id'),
+        code,
+      ).maybeSingle(),
       supabaseAdmin
         .from('demand_comments')
         .select('id, demand_id')

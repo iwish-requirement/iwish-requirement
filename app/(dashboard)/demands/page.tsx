@@ -24,6 +24,25 @@ import { loadClientBusinessUser } from "../../../lib/clientBusinessUser";
 import Badge from "../../../components/ui/Badge";
 import Modal from "../../../components/ui/Modal";
 
+const DEMAND_FILTERS_STORAGE_KEY = "iwish:demand-list-filters:v1";
+
+type PersistedDemandFilters = {
+  relationshipView?: "all" | "created" | "assigned";
+  selectedDept?: string;
+  selectedStatus?: string;
+  selectedPriority?: string;
+  onlyMyCreated?: boolean;
+  searchQuery?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  dueFrom?: string;
+  dueTo?: string;
+  selectedDemandTypeId?: string;
+  creatorUserId?: string;
+  assigneeUserId?: string;
+  dynamicFilters?: Record<string, string>;
+};
+
 const normalizePriorityForRealtime = (raw: any): string => {
   const value = (raw ?? "").toString();
   if (value.includes("紧急")) return "紧急";
@@ -69,6 +88,7 @@ const mapRealtimeRowToDemand = (row: any): Demand => {
 
   return {
     id: code,
+    databaseId: typeof row.id === "number" ? row.id : undefined,
     title: row.title as string,
     description,
     departmentId,
@@ -83,6 +103,10 @@ const mapRealtimeRowToDemand = (row: any): Demand => {
     customFields: Object.keys(rest).length ? rest : undefined,
   };
 };
+
+const getDemandRouteId = (demand: Demand): string => String(demand.databaseId ?? demand.id);
+const isSameDemand = (left: Demand, right: Demand): boolean =>
+  getDemandRouteId(left) === getDemandRouteId(right);
 
 export default function DemandsPage() {
 
@@ -112,6 +136,7 @@ export default function DemandsPage() {
   const [pageSize] = useState(20);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [filtersHydrated, setFiltersHydrated] = useState(false);
 
   const [deptUsers, setDeptUsers] = useState<{
     id: number;
@@ -173,7 +198,7 @@ export default function DemandsPage() {
   >(null);
 
   const selectedPreviewIndex = previewDemand
-    ? demands.findIndex((demand) => demand.id === previewDemand.id)
+    ? demands.findIndex((demand) => isSameDemand(demand, previewDemand))
     : -1;
 
   const creativeDepartment = departments.find((department) => department.slug === "design") || null;
@@ -210,6 +235,79 @@ export default function DemandsPage() {
     setDemandTypes([]);
     setPage(1);
   };
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(DEMAND_FILTERS_STORAGE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw) as PersistedDemandFilters;
+        if (saved.relationshipView === "all" || saved.relationshipView === "created" || saved.relationshipView === "assigned") {
+          setRelationshipView(saved.relationshipView);
+        }
+        if (typeof saved.selectedDept === "string") setSelectedDept(saved.selectedDept);
+        if (typeof saved.selectedStatus === "string") setSelectedStatus(saved.selectedStatus);
+        if (typeof saved.selectedPriority === "string") setSelectedPriority(saved.selectedPriority);
+        if (typeof saved.onlyMyCreated === "boolean") setOnlyMyCreated(saved.onlyMyCreated);
+        if (typeof saved.searchQuery === "string") setSearchQuery(saved.searchQuery);
+        if (typeof saved.createdFrom === "string") setCreatedFrom(saved.createdFrom);
+        if (typeof saved.createdTo === "string") setCreatedTo(saved.createdTo);
+        if (typeof saved.dueFrom === "string") setDueFrom(saved.dueFrom);
+        if (typeof saved.dueTo === "string") setDueTo(saved.dueTo);
+        if (typeof saved.selectedDemandTypeId === "string") setSelectedDemandTypeId(saved.selectedDemandTypeId);
+        if (typeof saved.creatorUserId === "string") setCreatorUserId(saved.creatorUserId);
+        if (typeof saved.assigneeUserId === "string") setAssigneeUserId(saved.assigneeUserId);
+        if (saved.dynamicFilters && typeof saved.dynamicFilters === "object" && !Array.isArray(saved.dynamicFilters)) {
+          setDynamicFilters(saved.dynamicFilters);
+        }
+      }
+    } catch (error) {
+      console.error("restore demand filters error", error);
+      window.localStorage.removeItem(DEMAND_FILTERS_STORAGE_KEY);
+    } finally {
+      setFiltersHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!filtersHydrated) return;
+    const filters: PersistedDemandFilters = {
+      relationshipView,
+      selectedDept,
+      selectedStatus,
+      selectedPriority,
+      onlyMyCreated,
+      searchQuery,
+      createdFrom,
+      createdTo,
+      dueFrom,
+      dueTo,
+      selectedDemandTypeId,
+      creatorUserId,
+      assigneeUserId,
+      dynamicFilters,
+    };
+    try {
+      window.localStorage.setItem(DEMAND_FILTERS_STORAGE_KEY, JSON.stringify(filters));
+    } catch (error) {
+      console.error("persist demand filters error", error);
+    }
+  }, [
+    filtersHydrated,
+    relationshipView,
+    selectedDept,
+    selectedStatus,
+    selectedPriority,
+    onlyMyCreated,
+    searchQuery,
+    createdFrom,
+    createdTo,
+    dueFrom,
+    dueTo,
+    selectedDemandTypeId,
+    creatorUserId,
+    assigneeUserId,
+    dynamicFilters,
+  ]);
 
   useEffect(() => {
     const loadDepartments = async () => {
@@ -270,6 +368,9 @@ export default function DemandsPage() {
   }, []);
 
   useEffect(() => {
+    if (!filtersHydrated) {
+      return;
+    }
     if (selectedDept === "all") {
       setWorkflowConfig(null);
       return;
@@ -311,7 +412,7 @@ export default function DemandsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedDept]);
+  }, [filtersHydrated, selectedDept]);
 
   useEffect(() => {
     let cancelled = false;
@@ -350,6 +451,9 @@ export default function DemandsPage() {
   }, []);
 
   useEffect(() => {
+    if (!filtersHydrated) {
+      return;
+    }
     if (selectedDept === "all") {
       setDeptUsers([]);
       setDeptUsersLoading(false);
@@ -426,7 +530,7 @@ export default function DemandsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedDept]);
+  }, [filtersHydrated, selectedDept]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -512,6 +616,9 @@ export default function DemandsPage() {
       }
     };
 
+    if (!filtersHydrated) {
+      return;
+    }
     if (onlyMyCreated && !currentUserCode) {
       return;
     }
@@ -544,6 +651,7 @@ export default function DemandsPage() {
     dueFrom,
     dueTo,
     selectedDemandTypeId,
+    filtersHydrated,
   ]);
 
   useEffect(() => {
@@ -604,7 +712,7 @@ export default function DemandsPage() {
           }
 
           setDemands((prev) => {
-            if (prev.some((item) => item.id === mapped.id)) {
+            if (prev.some((item) => isSameDemand(item, mapped))) {
               return prev;
             }
             const next = [mapped, ...prev];
@@ -962,7 +1070,7 @@ export default function DemandsPage() {
     try {
       setDeleteSubmitting(true);
       setDeleteError(null);
-      const res = await authorizedFetch(`/api/demands/${deleteTargetDemand.id}`, {
+      const res = await authorizedFetch(`/api/demands/${getDemandRouteId(deleteTargetDemand)}`, {
         method: "DELETE",
       });
       if (!res.ok) {
@@ -971,9 +1079,9 @@ export default function DemandsPage() {
         setDeleteError(text || "删除失败，请稍后重试");
         return;
       }
-      setDemands((prev) => prev.filter((d) => d.id !== deleteTargetDemand.id));
+      setDemands((prev) => prev.filter((d) => !isSameDemand(d, deleteTargetDemand)));
       setTotal((prev) => Math.max(0, prev - 1));
-      setPreviewDemand((prev) => (prev?.id === deleteTargetDemand.id ? null : prev));
+      setPreviewDemand((prev) => (prev && isSameDemand(prev, deleteTargetDemand) ? null : prev));
       setDeleteTargetDemand(null);
     } catch (e) {
       console.error("delete demand from list error", e);
@@ -985,7 +1093,7 @@ export default function DemandsPage() {
 
   const handleCopyDemand = async (demand: Demand) => {
     try {
-      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(demand.id)}/copy`, {
+      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(getDemandRouteId(demand))}/copy`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -995,7 +1103,7 @@ export default function DemandsPage() {
         return;
       }
       const json = await res.json();
-      const newId = json?.demand?.id as string | undefined;
+      const newId = String(json?.demand?.databaseId ?? json?.demand?.id ?? "");
       if (newId) {
         router.push(`/demands/${newId}`);
       }
@@ -1009,7 +1117,7 @@ export default function DemandsPage() {
     try {
       setPreviewAssigning(true);
       setPreviewAssignError(null);
-      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(previewDemand.id)}`, {
+      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(getDemandRouteId(previewDemand))}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1029,7 +1137,7 @@ export default function DemandsPage() {
       if (!updatedDemand) return;
 
       setDemands((prev) =>
-        prev.map((demand) => (demand.id === updatedDemand.id ? updatedDemand : demand)),
+        prev.map((demand) => (isSameDemand(demand, updatedDemand) ? updatedDemand : demand)),
       );
       setPreviewDemand(updatedDemand);
       setPreviewAssigneeEmail("");
@@ -1048,7 +1156,7 @@ export default function DemandsPage() {
     try {
       setPreviewStatusUpdating(true);
       setPreviewStatusError(null);
-      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(previewDemand.id)}`, {
+      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(getDemandRouteId(previewDemand))}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1068,7 +1176,7 @@ export default function DemandsPage() {
       if (!updatedDemand) return;
 
       setDemands((prev) =>
-        prev.map((demand) => (demand.id === updatedDemand.id ? updatedDemand : demand)),
+        prev.map((demand) => (isSameDemand(demand, updatedDemand) ? updatedDemand : demand)),
       );
       setPreviewDemand(updatedDemand);
       setPreviewStatusValue(updatedDemand.status || "");
@@ -1087,7 +1195,7 @@ export default function DemandsPage() {
     try {
       setPreviewScheduledSaving(true);
       setPreviewScheduledError(null);
-      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(previewDemand.id)}`, {
+      const res = await authorizedFetch(`/api/demands/${encodeURIComponent(getDemandRouteId(previewDemand))}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1109,7 +1217,7 @@ export default function DemandsPage() {
       if (!updatedDemand) return;
 
       setDemands((prev) =>
-        prev.map((demand) => (demand.id === updatedDemand.id ? updatedDemand : demand)),
+        prev.map((demand) => (isSameDemand(demand, updatedDemand) ? updatedDemand : demand)),
       );
       setPreviewDemand(updatedDemand);
     } catch (e) {
@@ -1983,7 +2091,7 @@ export default function DemandsPage() {
                 const assigneeDisplayName = demand.assigneeName || demand.assigneeId || "";
                 return (
                   <tr
-                    key={demand.id}
+                    key={getDemandRouteId(demand)}
                     className="hover:bg-slate-50 transition-colors cursor-pointer"
                     onClick={() => openDemandPreview(demand)}
                   >
@@ -2364,7 +2472,7 @@ export default function DemandsPage() {
             departments.find((d) => d.id === demand.departmentId)?.name || "Unknown";
           return (
             <div
-              key={demand.id}
+              key={getDemandRouteId(demand)}
               className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm active:scale-[0.98] transition-transform"
               onClick={() => openDemandPreview(demand)}
             >
@@ -2416,7 +2524,7 @@ export default function DemandsPage() {
                   className="px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-50 rounded-lg border border-slate-200"
                   onClick={(e) => {
                     e.stopPropagation();
-                    router.push(`/demands/${demand.id}`);
+                    router.push(`/demands/${getDemandRouteId(demand)}`);
                   }}
                 >
                   详情
@@ -2425,7 +2533,7 @@ export default function DemandsPage() {
                   className="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg shadow-sm"
                   onClick={(e) => {
                     e.stopPropagation();
-                    router.push(`/demands/${demand.id}`);
+                    router.push(`/demands/${getDemandRouteId(demand)}`);
                   }}
                 >
                   编辑
@@ -2762,7 +2870,7 @@ export default function DemandsPage() {
               <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                 <button
                   type="button"
-                  onClick={() => router.push(`/demands/${previewDemand.id}`)}
+                  onClick={() => router.push(`/demands/${getDemandRouteId(previewDemand)}`)}
                   className="inline-flex items-center justify-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700"
                 >
                   <ExternalLink className="h-4 w-4" /> 进入详情
@@ -2770,7 +2878,7 @@ export default function DemandsPage() {
                 {isCreativeDemand(previewDemand) && (
                   <button
                     type="button"
-                    onClick={() => router.push(`/demands/${previewDemand.id}`)}
+                    onClick={() => router.push(`/demands/${getDemandRouteId(previewDemand)}`)}
                     className="inline-flex items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-2 text-sm font-bold text-white hover:bg-slate-800"
                   >
                     整理为 PSD

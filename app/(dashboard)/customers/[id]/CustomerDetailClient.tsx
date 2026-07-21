@@ -18,7 +18,7 @@ type Summary = {
     avgDeliveryHours: number;
     involvedDepartments: { id: number; name: string }[];
   };
-  demands: { id: string; title: string; status: string; departmentName: string; createdAt: string | null }[];
+  demands: { databaseId: number; id: string; title: string; status: string; departmentName: string; createdAt: string | null }[];
 };
 
 export default function CustomerDetailClient() {
@@ -135,8 +135,8 @@ export default function CustomerDetailClient() {
             <div className="divide-y divide-slate-100">
               {summary.demands.map((demand) => (
                 <button
-                  key={demand.id}
-                  onClick={() => router.push(`/demands/${demand.id}`)}
+                  key={demand.databaseId}
+                  onClick={() => router.push(`/demands/${demand.databaseId}`)}
                   className="w-full py-3 text-left hover:bg-slate-50"
                 >
                   <div className="flex items-center justify-between gap-3">

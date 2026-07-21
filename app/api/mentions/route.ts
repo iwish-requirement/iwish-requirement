@@ -166,6 +166,7 @@ export async function GET(req: NextRequest) {
         content: row.content,
         createdAt: formatCreatedAt(row.created_at),
         authorLabel,
+        demandDatabaseId: demand?.id ?? null,
         demandCode: code,
         demandTitle: demand?.title ?? '',
         parentId: row.parent_comment_id,

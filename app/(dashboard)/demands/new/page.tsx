@@ -615,7 +615,7 @@ export default function NewDemandPage() {
       const json = await res.json();
       setDrafts((prev) => prev.filter((item) => item.id !== draft.id));
       if (json?.demand?.id) {
-        router.push(`/demands/${json.demand.id}`);
+        router.push(`/demands/${json.demand.databaseId ?? json.demand.id}`);
       }
     } catch (e) {
       console.error('confirm draft error', e);
@@ -694,7 +694,9 @@ export default function NewDemandPage() {
       }
 
       const json = await res.json();
-      const id = json?.demand?.id as string | undefined;
+      const id = json?.demand
+        ? String(json.demand.databaseId ?? json.demand.id ?? "")
+        : "";
 
       if (id && pendingFiles.length > 0) {
         for (const file of pendingFiles) {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
+import { applyDemandIdentifierFilter } from '../../../../../lib/demandIdentifier';
 
 export const runtime = 'edge';
 
@@ -38,11 +39,10 @@ export async function GET(
       return NextResponse.json({ error: 'id is required' }, { status: 400 });
     }
 
-    const { data: demand, error: demandError } = await supabaseAdmin
-      .from('demands')
-      .select('id')
-      .eq('fields->>code', code)
-      .maybeSingle();
+    const { data: demand, error: demandError } = await applyDemandIdentifierFilter(
+      supabaseAdmin.from('demands').select('id'),
+      code,
+    ).maybeSingle();
 
     if (demandError) {
       console.error('[api/demands/:id/attachments] load demand error', demandError);
@@ -122,11 +122,10 @@ export async function POST(
 
     const [{ data: demand, error: demandError }, { data: user, error: userError }] =
       await Promise.all([
-        supabaseAdmin
-          .from('demands')
-          .select('id')
-          .eq('fields->>code', code)
-          .maybeSingle(),
+        applyDemandIdentifierFilter(
+          supabaseAdmin.from('demands').select('id'),
+          code,
+        ).maybeSingle(),
         supabaseAdmin
           .from('users')
           .select('id, email')

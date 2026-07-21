@@ -6,6 +6,7 @@ import {
   findInvalidPositiveIntegerDemandFields,
   findMissingRequiredDemandFields,
 } from "../../../../lib/demandRequiredFieldUtils";
+import { makeDemandCode } from "../../../../lib/demandCode";
 
 export const runtime = "edge";
 
@@ -434,9 +435,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const code = `REQ-${new Date().getFullYear()}-${Math.floor(Date.now() % 100000)
-        .toString()
-        .padStart(5, "0")}`;
+      const code = makeDemandCode();
 
       const creatorCode = creatorEmail.split("@")[0]?.toUpperCase();
       const assigneeCode = assigneeEmail.split("@")[0]?.toUpperCase();
