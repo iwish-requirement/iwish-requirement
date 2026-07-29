@@ -60,6 +60,7 @@ export async function GET(
     demandTypeRequired: isDepartmentDemandTypeRequired(
       (dept as any).config,
       (dept as any).slug,
+      (dept as any).name,
     ),
   };
   const departmentConfig = (dept as any).config && typeof (dept as any).config === "object"

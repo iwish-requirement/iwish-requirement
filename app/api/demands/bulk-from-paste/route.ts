@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
         await Promise.all([
           supabaseAdmin
             .from("departments")
-            .select("id, slug, config")
+            .select("id, name, slug, config")
             .eq("id", departmentId)
             .maybeSingle(),
           Number.isNaN(demandTypeId)
@@ -92,13 +92,14 @@ export async function POST(req: NextRequest) {
         isDepartmentDemandTypeRequired(
           (department as any).config,
           (department as any).slug,
+          (department as any).name,
         ) &&
         Number.isNaN(demandTypeId)
       ) {
         return NextResponse.json(
           {
             error: "demand_type_required",
-            detail: "请选择需求类型；该部门不支持通用需求。",
+            detail: "请选择需求类型；创意部需求类型为必选项。",
           },
           { status: 400 },
         );

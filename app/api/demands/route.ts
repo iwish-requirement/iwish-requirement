@@ -1044,12 +1044,12 @@ export async function POST(req: NextRequest) {
       departmentIdNumber
         ? supabaseAdmin
             .from("departments")
-            .select("id, slug, config, status_config")
+            .select("id, name, slug, config, status_config")
             .eq("id", departmentIdNumber)
             .maybeSingle()
         : supabaseAdmin
             .from("departments")
-            .select("id, slug, config, status_config")
+            .select("id, name, slug, config, status_config")
             .eq("slug", deptSlug as string)
             .maybeSingle(),
       Promise.resolve({ data: authResult.user, error: null } as any),
@@ -1097,13 +1097,17 @@ export async function POST(req: NextRequest) {
     }
 
     if (
-      isDepartmentDemandTypeRequired((dept as any).config, (dept as any).slug) &&
+      isDepartmentDemandTypeRequired(
+        (dept as any).config,
+        (dept as any).slug,
+        (dept as any).name,
+      ) &&
       !demandTypeId
     ) {
       return NextResponse.json(
         {
           error: "demand_type_required",
-          detail: "请选择需求类型；该部门不支持通用需求。",
+          detail: "请选择需求类型；创意部需求类型为必选项。",
         },
         { status: 400 },
       );
