@@ -36,5 +36,6 @@ test("requires a type when configured and protects Creative as a compatibility f
     false,
   );
   assert.equal(isDepartmentDemandTypeRequired({}, "creative"), true);
+  assert.equal(isDepartmentDemandTypeRequired({}, "design", "创意部"), true);
   assert.equal(isDepartmentDemandTypeRequired({}, "tech"), false);
 });

@@ -97,7 +97,11 @@ export default function NewDemandPage() {
   const [draftMessage, setDraftMessage] = useState<string | null>(null);
   const [recentInputs, setRecentInputs] = useState<RecentInput[]>([]);
   const requiresLeaderAssignment = workflowConfig?.rules?.requireLeaderAssignment === true;
-  const demandTypeRequired = workflowConfig?.demandTypeRequired === true;
+  const selectedDepartment = departments.find((item) => item.id === selectedDeptId);
+  const demandTypeRequired =
+    workflowConfig?.demandTypeRequired === true ||
+    selectedDepartment?.slug?.trim().toLowerCase() === "creative" ||
+    selectedDepartment?.name?.includes("创意") === true;
 
   useEffect(() => {
     const loadDepartments = async () => {
@@ -412,7 +416,7 @@ export default function NewDemandPage() {
       return;
     }
     if (demandTypeRequired && !selectedDemandTypeId) {
-      setPasteResult('请先选择需求类型；当前部门不支持通用需求。');
+      setPasteResult('请先选择需求类型；创意部需求类型为必选项。');
       return;
     }
 
@@ -651,7 +655,7 @@ export default function NewDemandPage() {
       return;
     }
     if (demandTypeRequired && !selectedDemandTypeId) {
-      setError('请选择需求类型；当前部门不支持通用需求。');
+      setError('请选择需求类型；创意部需求类型为必选项。');
       return;
     }
     if (!requiresLeaderAssignment && !assigneeEmail.trim()) {
@@ -883,9 +887,7 @@ export default function NewDemandPage() {
                 onChange={(e) => setSelectedDemandTypeId(e.target.value)}
                 className="w-full px-4 py-3 text-base border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none shadow-sm bg-white transition-all"
               >
-                <option value="">
-                  {demandTypeRequired ? "请选择需求类型" : "通用需求"}
-                </option>
+                <option value="" disabled={demandTypeRequired}>请选择需求类型</option>
                 {demandTypes.map((item) => (
                   <option key={item.id} value={String(item.id)}>
                     {item.name}

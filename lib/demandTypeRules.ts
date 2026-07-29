@@ -62,6 +62,7 @@ export function resolveDemandTypeDeliveryCategory(
 export function isDepartmentDemandTypeRequired(
   departmentConfig: unknown,
   departmentSlug?: string | null,
+  departmentName?: string | null,
 ): boolean {
   const config = asRecord(departmentConfig);
   const demandTypes = asRecord(config?.demandTypes);
@@ -77,5 +78,8 @@ export function isDepartmentDemandTypeRequired(
   }
 
   // Creative must remain protected even if an older environment misses the config backfill.
-  return (departmentSlug || "").trim().toLowerCase() === "creative";
+  return (
+    (departmentSlug || "").trim().toLowerCase() === "creative" ||
+    (departmentName || "").includes("\u521b\u610f")
+  );
 }
