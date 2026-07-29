@@ -15,6 +15,7 @@ import { validateRequiredDemandFields } from "../../../../lib/serverDemandRequir
 import { applyDemandIdentifierFilter } from "../../../../lib/demandIdentifier";
 import { writeAuditLog } from "../../../../lib/audit";
 import { buildDemandStateChangedFields } from "../../../../lib/demandStateAudit";
+import { applyDemandWorkflowDisplayFields } from "../../../../lib/demandWorkflowDisplay";
 
 export const runtime = "edge";
 
@@ -445,7 +446,7 @@ export async function PATCH(
 
     const { data: department, error: departmentError } = await supabaseAdmin
       .from("departments")
-      .select("id, slug, config, status_config")
+      .select("id, slug, config, priority_config, status_config")
       .eq("id", existing.department_id)
       .maybeSingle();
 
@@ -639,7 +640,13 @@ export async function PATCH(
       });
     }
 
-    const demand = await enrichDemandUsers(mapRowToDemand(data), data);
+    const demand = applyDemandWorkflowDisplayFields(
+      await enrichDemandUsers(mapRowToDemand(data), data),
+      {
+        priorities: (((department as any).priority_config as any[]) || []),
+        statuses: (((department as any).status_config as any[]) || []),
+      },
+    );
 
     const nextStatus = ((data.status as string | null) || "").toString();
 
