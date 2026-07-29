@@ -1776,13 +1776,21 @@ const WorkflowConfigSettingsLegacy2 = ({ canManage }: { canManage: boolean }) =>
 // -------------------- 需求类型管理 --------------------
 
 const DemandTypeSettings = ({ canManage }: { canManage: boolean }) => {
+  type DeliveryCategory = "material" | "video" | "mixed" | "excluded" | "";
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedDeptId, setSelectedDeptId] = useState("");
-  const [items, setItems] = useState<Array<{ id: number; name: string; code?: string | null; isActive: boolean; orderIndex?: number | null }>>([]);
+  const [items, setItems] = useState<Array<{ id: number; name: string; code?: string | null; isActive: boolean; orderIndex?: number | null; deliveryCategory?: DeliveryCategory | null }>>([]);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
-  const [editingType, setEditingType] = useState<{ id: number; name: string; code: string; orderIndex: string; isActive: boolean } | null>(null);
+  const [deliveryCategory, setDeliveryCategory] = useState<DeliveryCategory>("");
+  const [editingType, setEditingType] = useState<{ id: number; name: string; code: string; orderIndex: string; isActive: boolean; deliveryCategory: DeliveryCategory } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const categoryLabels: Record<Exclude<DeliveryCategory, "">, string> = {
+    material: "素材",
+    video: "视频",
+    mixed: "素材 + 视频",
+    excluded: "不计入交付统计",
+  };
 
   useEffect(() => {
     fetch("/api/departments")
@@ -1815,7 +1823,11 @@ const DemandTypeSettings = ({ canManage }: { canManage: boolean }) => {
     const res = await authorizedFetch(`/api/departments/${encodeURIComponent(selectedDeptId)}/demand-types`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), code: code.trim() || undefined }),
+      body: JSON.stringify({
+        name: name.trim(),
+        code: code.trim() || undefined,
+        deliveryCategory: deliveryCategory || undefined,
+      }),
     });
     if (!res.ok) {
       setMessage("需求类型创建失败");
@@ -1823,6 +1835,7 @@ const DemandTypeSettings = ({ canManage }: { canManage: boolean }) => {
     }
     setName("");
     setCode("");
+    setDeliveryCategory("");
     setMessage("需求类型已创建");
     await loadTypes();
   };
@@ -1853,6 +1866,7 @@ const DemandTypeSettings = ({ canManage }: { canManage: boolean }) => {
         code: editingType.code.trim() || null,
         orderIndex: Number.isFinite(orderIndex) ? orderIndex : null,
         isActive: editingType.isActive,
+        deliveryCategory: editingType.deliveryCategory || null,
       }),
     });
     if (!res.ok) {
@@ -1877,13 +1891,20 @@ const DemandTypeSettings = ({ canManage }: { canManage: boolean }) => {
         </select>
         <input value={name} onChange={(e) => setName(e.target.value)} disabled={!canManage} placeholder="类型名称，如视频剪辑" className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm" />
         <input value={code} onChange={(e) => setCode(e.target.value)} disabled={!canManage} placeholder="code，可选" className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+        <select value={deliveryCategory} onChange={(e) => setDeliveryCategory(e.target.value as DeliveryCategory)} disabled={!canManage} className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+          <option value="">交付分类（可选）</option>
+          <option value="material">素材</option>
+          <option value="video">视频</option>
+          <option value="mixed">素材 + 视频</option>
+          <option value="excluded">不计入统计</option>
+        </select>
         <button onClick={createType} disabled={!canManage} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold disabled:opacity-60">新增</button>
       </div>
       <div className="rounded-2xl border border-slate-200 overflow-hidden">
         {items.length === 0 ? <div className="p-6 text-sm text-slate-400">当前部门暂无需求类型。</div> : items.map((item) => (
           <div key={item.id} className="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-100 last:border-b-0">
             {editingType?.id === item.id ? (
-              <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-2">
+              <div className="flex-1 grid grid-cols-1 md:grid-cols-5 gap-2">
                 <input
                   value={editingType.name}
                   onChange={(e) => setEditingType({ ...editingType, name: e.target.value })}
@@ -1902,6 +1923,17 @@ const DemandTypeSettings = ({ canManage }: { canManage: boolean }) => {
                   className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
                 />
                 <select
+                  value={editingType.deliveryCategory}
+                  onChange={(e) => setEditingType({ ...editingType, deliveryCategory: e.target.value as DeliveryCategory })}
+                  className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+                >
+                  <option value="">未分类</option>
+                  <option value="material">素材</option>
+                  <option value="video">视频</option>
+                  <option value="mixed">素材 + 视频</option>
+                  <option value="excluded">不计入统计</option>
+                </select>
+                <select
                   value={editingType.isActive ? "active" : "inactive"}
                   onChange={(e) => setEditingType({ ...editingType, isActive: e.target.value === "active" })}
                   className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
@@ -1914,7 +1946,9 @@ const DemandTypeSettings = ({ canManage }: { canManage: boolean }) => {
               <div>
                 <div className="font-semibold text-slate-900">{item.name}</div>
                 <div className="text-xs text-slate-400">
-                  {item.code || "未设置 code"}{item.orderIndex !== null && item.orderIndex !== undefined ? ` · 排序 ${item.orderIndex}` : ""}
+                  {item.code || "未设置 code"}
+                  {item.deliveryCategory ? ` · ${categoryLabels[item.deliveryCategory]}` : " · 未配置交付分类"}
+                  {item.orderIndex !== null && item.orderIndex !== undefined ? ` · 排序 ${item.orderIndex}` : ""}
                 </div>
               </div>
             )}
@@ -1933,6 +1967,7 @@ const DemandTypeSettings = ({ canManage }: { canManage: boolean }) => {
                       code: item.code || "",
                       orderIndex: item.orderIndex === null || item.orderIndex === undefined ? "" : String(item.orderIndex),
                       isActive: item.isActive,
+                      deliveryCategory: item.deliveryCategory || "",
                     })}
                     disabled={!canManage}
                     className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md disabled:opacity-50"

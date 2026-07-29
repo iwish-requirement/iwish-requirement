@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest, ensureActiveUser } from "../../../../../lib/serverAuth";
 import { ensureHasAnyPermission } from "../../../../../lib/serverPermissions";
 import { writeAuditLog } from "../../../../../lib/audit";
+import { normalizeDemandDeliveryCategory } from "../../../../../lib/demandTypeRules";
 
 export const runtime = "edge";
 
@@ -16,6 +17,11 @@ function mapDemandType(row: any) {
     description: (row.description as string | null) || null,
     isActive: row.is_active !== false,
     orderIndex: (row.order_index as number | null) || null,
+    deliveryCategory: normalizeDemandDeliveryCategory(row.config?.deliveryCategory),
+    config:
+      row.config && typeof row.config === "object"
+        ? (row.config as Record<string, unknown>)
+        : null,
   };
 }
 
@@ -41,7 +47,7 @@ export async function GET(
 
     let query = supabaseAdmin
       .from("demand_types")
-      .select("id, department_id, name, code, field_template_id, description, is_active, order_index")
+      .select("id, department_id, name, code, field_template_id, description, config, is_active, order_index")
       .eq("department_id", departmentId)
       .order("order_index", { ascending: true })
       .order("id", { ascending: true });
@@ -88,6 +94,10 @@ export async function POST(
     if (!name) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
+    const deliveryCategory = normalizeDemandDeliveryCategory(body.deliveryCategory);
+    if (body.deliveryCategory !== undefined && body.deliveryCategory !== null && !deliveryCategory) {
+      return NextResponse.json({ error: "invalid deliveryCategory" }, { status: 400 });
+    }
 
     const { data, error } = await supabaseAdmin
       .from("demand_types")
@@ -97,11 +107,12 @@ export async function POST(
         code: ((body.code as string | undefined) || "").trim() || null,
         field_template_id: typeof body.fieldTemplateId === "number" ? body.fieldTemplateId : null,
         description: ((body.description as string | undefined) || "").trim() || null,
+        config: deliveryCategory ? { deliveryCategory } : {},
         is_active: body.isActive === false ? false : true,
         order_index: typeof body.orderIndex === "number" ? body.orderIndex : null,
         updated_at: new Date().toISOString(),
       })
-      .select("id, department_id, name, code, field_template_id, description, is_active, order_index")
+      .select("id, department_id, name, code, field_template_id, description, config, is_active, order_index")
       .maybeSingle();
 
     if (error || !data) {
@@ -149,7 +160,7 @@ export async function PATCH(
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
 
-    const updates = {
+    const updates: Record<string, unknown> = {
       name: body.name === undefined ? undefined : ((body.name as string | undefined) || "").trim(),
       code: body.code === undefined ? undefined : ((body.code as string | undefined) || "").trim() || null,
       field_template_id: body.fieldTemplateId === undefined ? undefined : typeof body.fieldTemplateId === "number" ? body.fieldTemplateId : null,
@@ -158,6 +169,34 @@ export async function PATCH(
       order_index: body.orderIndex === undefined ? undefined : typeof body.orderIndex === "number" ? body.orderIndex : null,
       updated_at: new Date().toISOString(),
     };
+    if (body.deliveryCategory !== undefined) {
+      const deliveryCategory = normalizeDemandDeliveryCategory(body.deliveryCategory);
+      if (body.deliveryCategory !== null && !deliveryCategory) {
+        return NextResponse.json({ error: "invalid deliveryCategory" }, { status: 400 });
+      }
+      const { data: existingType, error: existingTypeError } = await supabaseAdmin
+        .from("demand_types")
+        .select("config")
+        .eq("id", id)
+        .eq("department_id", departmentId)
+        .maybeSingle();
+      if (existingTypeError || !existingType) {
+        return NextResponse.json(
+          { error: "demand type not found", detail: existingTypeError?.message },
+          { status: 404 },
+        );
+      }
+      const nextConfig =
+        existingType.config && typeof existingType.config === "object"
+          ? { ...(existingType.config as Record<string, unknown>) }
+          : {};
+      if (deliveryCategory) {
+        nextConfig.deliveryCategory = deliveryCategory;
+      } else {
+        delete nextConfig.deliveryCategory;
+      }
+      updates.config = nextConfig;
+    }
     Object.keys(updates).forEach((key) => {
       if ((updates as any)[key] === undefined || (updates as any)[key] === "") delete (updates as any)[key];
     });
@@ -167,7 +206,7 @@ export async function PATCH(
       .update(updates)
       .eq("id", id)
       .eq("department_id", departmentId)
-      .select("id, department_id, name, code, field_template_id, description, is_active, order_index")
+      .select("id, department_id, name, code, field_template_id, description, config, is_active, order_index")
       .maybeSingle();
 
     if (error || !data) {

@@ -44,6 +44,7 @@ export interface DepartmentWorkflowConfig {
   priorities: PriorityConfig[];
   statuses: StatusConfig[];
   rules?: DepartmentDemandRules;
+  demandTypeRequired?: boolean;
   stats?: {
     defaultMemberMonthBasis?: 'created' | 'scheduled' | 'finished';
     scheduledDateFieldKey?: string | null;
@@ -142,6 +143,8 @@ export interface DemandType {
   description?: string | null;
   isActive: boolean;
   orderIndex?: number | null;
+  deliveryCategory?: 'material' | 'video' | 'mixed' | 'excluded' | null;
+  config?: Record<string, unknown> | null;
 }
 
 export interface DemandDraft {

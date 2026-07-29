@@ -198,7 +198,7 @@ export async function GET(req: NextRequest) {
         .eq("is_active", true),
       supabaseAdmin
         .from("demand_types")
-        .select("id, name, code, field_template_id, is_active")
+        .select("id, name, code, field_template_id, config, is_active")
         .eq("department_id", departmentId),
       supabaseAdmin
         .from("score_templates")
@@ -269,6 +269,7 @@ export async function GET(req: NextRequest) {
       name: string | null;
       code: string | null;
       field_template_id: number | null;
+      config: Record<string, unknown> | null;
       is_active: boolean | null;
     }[];
     for (const demandType of demandTypeRows) {

@@ -4,6 +4,7 @@ import { getBusinessUserFromRequest, ensureActiveUser } from "../../../../../lib
 import { ensureHasAnyPermission } from "../../../../../lib/serverPermissions";
 import type { DepartmentWorkflowConfig, PriorityConfig, StatusConfig } from "../../../../../types";
 import { resolveDepartmentDemandRules } from "../../../../../lib/departmentDemandRules";
+import { isDepartmentDemandTypeRequired } from "../../../../../lib/demandTypeRules";
 
 
 export const runtime = "edge";
@@ -56,6 +57,10 @@ export async function GET(
     priorities: (dept.priority_config as PriorityConfig[]) || [],
     statuses: (dept.status_config as StatusConfig[]) || [],
     rules: resolveDepartmentDemandRules((dept as any).config, (dept as any).slug),
+    demandTypeRequired: isDepartmentDemandTypeRequired(
+      (dept as any).config,
+      (dept as any).slug,
+    ),
   };
   const departmentConfig = (dept as any).config && typeof (dept as any).config === "object"
     ? ((dept as any).config as Record<string, any>)
