@@ -22,6 +22,7 @@ import { triggerCreativeDemandSheetSync } from "../../../lib/creativeDemandSheet
 import { validateRequiredDemandFields } from "../../../lib/serverDemandRequiredFields";
 import { makeDemandCode } from "../../../lib/demandCode";
 import { isDepartmentDemandTypeRequired } from "../../../lib/demandTypeRules";
+import { applyDemandWorkflowDisplayFields } from "../../../lib/demandWorkflowDisplay";
 
 export const runtime = "edge";
 
@@ -640,49 +641,15 @@ export async function GET(req: NextRequest) {
       ]);
 
       const items = rows.map((row: any) => {
-        const demand: any = mapRowToDemand(row);
-
         const deptIdForConfig =
           typeof row.department_id === "number" && Number.isFinite(row.department_id)
             ? (row.department_id as number)
             : null;
         const cfgForRow = deptIdForConfig ? workflowConfigMap.get(deptIdForConfig) ?? null : null;
-
-        if (cfgForRow) {
-          const priorityLabel = resolvePriorityLabelForMessage(demand.priority as any, cfgForRow);
-          const statusLabel = resolveStatusLabelForMessage(demand.status as any, cfgForRow);
-
-          if (priorityLabel) {
-            demand.priorityLabel = priorityLabel;
-            const pCfg =
-              cfgForRow.priorities.find(
-                (p) => p.value === (demand.priority as any) || p.label === priorityLabel,
-              ) || null;
-            if (pCfg && pCfg.color) {
-              demand.priorityColor = pCfg.color;
-            }
-          }
-
-          if (statusLabel) {
-            demand.statusLabel = statusLabel;
-            const sCfg =
-              cfgForRow.statuses.find(
-                (s) => s.value === (demand.status as any) || s.label === statusLabel,
-              ) || null;
-            if (sCfg && sCfg.color) {
-              demand.statusColor = sCfg.color;
-            }
-          }
-        } else {
-          const priorityLabel = resolvePriorityLabelForMessage(demand.priority as any, null);
-          const statusLabel = resolveStatusLabelForMessage(demand.status as any, null);
-          if (priorityLabel) {
-            demand.priorityLabel = priorityLabel;
-          }
-          if (statusLabel) {
-            demand.statusLabel = statusLabel;
-          }
-        }
+        const demand: any = applyDemandWorkflowDisplayFields(
+          mapRowToDemand(row),
+          cfgForRow,
+        );
 
         const creatorUser = row.creator_id ? userMap.get(row.creator_id as number) : undefined;
         const assigneeUser = row.assignee_id ? userMap.get(row.assignee_id as number) : undefined;
