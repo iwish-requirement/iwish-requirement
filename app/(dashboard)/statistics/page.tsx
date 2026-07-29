@@ -89,8 +89,10 @@ interface DepartmentMemberStat {
   materialCount: number;
   completedMaterialCount?: number;
   imageMaterialCount?: number;
+  completedImageDemandCount?: number;
   completedImageMaterialCount?: number;
   videoMaterialCount?: number;
+  completedVideoDemandCount?: number;
   completedVideoMaterialCount?: number;
   pageCount?: number;
   avgCycleDays: number;
@@ -109,8 +111,10 @@ interface DepartmentMemberStatsMeta {
     materialCount: boolean;
     completedMaterialCount: boolean;
     imageMaterialCount: boolean;
+    completedImageDemandCount: boolean;
     completedImageMaterialCount: boolean;
     videoMaterialCount: boolean;
+    completedVideoDemandCount: boolean;
     completedVideoMaterialCount: boolean;
     pageCount: boolean;
   };
@@ -132,8 +136,10 @@ const EMPTY_MEMBER_STATS_META: DepartmentMemberStatsMeta = {
     materialCount: false,
     completedMaterialCount: false,
     imageMaterialCount: false,
+    completedImageDemandCount: false,
     completedImageMaterialCount: false,
     videoMaterialCount: false,
+    completedVideoDemandCount: false,
     completedVideoMaterialCount: false,
     pageCount: false,
   },
@@ -240,6 +246,8 @@ export default function StatsPage() {
   const memberDeliveryColumns =
     memberStatsMeta?.deliveryColumns ?? EMPTY_MEMBER_STATS_META.deliveryColumns;
   const scoreFeatureEnabled = selectedDeptId === "all" || Boolean(memberStatsMeta?.scoringEnabled);
+  const showMemberScoreColumns =
+    scoreFeatureEnabled && !Boolean(memberStatsMeta?.creativeUnifiedDelivery);
   const scoreFeatureReady = selectedDeptId === "all" || memberStatsMeta !== null;
 
   useEffect(() => {
@@ -886,8 +894,12 @@ export default function StatsPage() {
                     <th className="py-2 pr-4 font-medium whitespace-nowrap">成员</th>
                     {/* 当前版本不展示成员角色列 */}
                     {/* <th className="py-2 px-4 font-medium whitespace-nowrap">角色</th> */}
-                    <th className="py-2 px-4 font-medium whitespace-nowrap">负责需求数</th>
-                    <th className="py-2 px-4 font-medium whitespace-nowrap">已完成需求数</th>
+                    {!memberStatsMeta?.creativeUnifiedDelivery && (
+                      <th className="py-2 px-4 font-medium whitespace-nowrap">负责需求数</th>
+                    )}
+                    {!memberStatsMeta?.creativeUnifiedDelivery && (
+                      <th className="py-2 px-4 font-medium whitespace-nowrap">已完成需求数</th>
+                    )}
                     {memberDeliveryColumns.materialCount && (
                       <th className="py-2 px-4 font-medium whitespace-nowrap">素材合计</th>
                     )}
@@ -899,6 +911,9 @@ export default function StatsPage() {
                         {memberStatsMeta?.creativeUnifiedDelivery ? "素材需求数量" : "平面素材"}
                       </th>
                     )}
+                    {memberDeliveryColumns.completedImageDemandCount && (
+                      <th className="py-2 px-4 font-medium whitespace-nowrap">已完成素材需求数</th>
+                    )}
                     {memberDeliveryColumns.completedImageMaterialCount && (
                       <th className="py-2 px-4 font-medium whitespace-nowrap">已完成素材数量</th>
                     )}
@@ -907,16 +922,19 @@ export default function StatsPage() {
                         {memberStatsMeta?.creativeUnifiedDelivery ? "视频需求数量" : "视频数量"}
                       </th>
                     )}
+                    {memberDeliveryColumns.completedVideoDemandCount && (
+                      <th className="py-2 px-4 font-medium whitespace-nowrap">已完成视频需求数</th>
+                    )}
                     {memberDeliveryColumns.completedVideoMaterialCount && (
                       <th className="py-2 px-4 font-medium whitespace-nowrap">已完成视频数量</th>
                     )}
                     {memberDeliveryColumns.pageCount && (
                       <th className="py-2 px-4 font-medium whitespace-nowrap">页面数量</th>
                     )}
-                    {scoreFeatureEnabled && (
+                    {showMemberScoreColumns && (
                       <th className="py-2 px-4 font-medium whitespace-nowrap">平均评分</th>
                     )}
-                    {scoreFeatureEnabled && (
+                    {showMemberScoreColumns && (
                       <th className="py-2 px-4 font-medium whitespace-nowrap">评分次数</th>
                     )}
                   </tr>
@@ -936,8 +954,12 @@ export default function StatsPage() {
                         {m.role || <span className="text-slate-400">未设置角色</span>}
                       </td>
                       */}
-                      <td className="py-2 px-4 text-slate-700">{m.demandsAssignee}</td>
-                      <td className="py-2 px-4 text-slate-700">{m.demandsCompleted}</td>
+                      {!memberStatsMeta?.creativeUnifiedDelivery && (
+                        <td className="py-2 px-4 text-slate-700">{m.demandsAssignee}</td>
+                      )}
+                      {!memberStatsMeta?.creativeUnifiedDelivery && (
+                        <td className="py-2 px-4 text-slate-700">{m.demandsCompleted}</td>
+                      )}
                       {memberDeliveryColumns.materialCount && (
                         <td className="py-2 px-4 text-slate-700">{m.materialCount ?? 0}</td>
                       )}
@@ -947,11 +969,17 @@ export default function StatsPage() {
                       {memberDeliveryColumns.imageMaterialCount && (
                         <td className="py-2 px-4 text-slate-700">{m.imageMaterialCount ?? 0}</td>
                       )}
+                      {memberDeliveryColumns.completedImageDemandCount && (
+                        <td className="py-2 px-4 text-slate-700">{m.completedImageDemandCount ?? 0}</td>
+                      )}
                       {memberDeliveryColumns.completedImageMaterialCount && (
                         <td className="py-2 px-4 text-slate-700">{m.completedImageMaterialCount ?? 0}</td>
                       )}
                       {memberDeliveryColumns.videoMaterialCount && (
                         <td className="py-2 px-4 text-slate-700">{m.videoMaterialCount ?? 0}</td>
+                      )}
+                      {memberDeliveryColumns.completedVideoDemandCount && (
+                        <td className="py-2 px-4 text-slate-700">{m.completedVideoDemandCount ?? 0}</td>
                       )}
                       {memberDeliveryColumns.completedVideoMaterialCount && (
                         <td className="py-2 px-4 text-slate-700">{m.completedVideoMaterialCount ?? 0}</td>
@@ -959,12 +987,12 @@ export default function StatsPage() {
                       {memberDeliveryColumns.pageCount && (
                         <td className="py-2 px-4 text-slate-700">{m.pageCount ?? 0}</td>
                       )}
-                      {scoreFeatureEnabled && (
+                      {showMemberScoreColumns && (
                         <td className="py-2 px-4 text-slate-700">
                           {m.scoreCount > 0 ? m.scoreAvg.toFixed(2) : "-"}
                         </td>
                       )}
-                      {scoreFeatureEnabled && (
+                      {showMemberScoreColumns && (
                         <td className="py-2 px-4 text-slate-700">{m.scoreCount}</td>
                       )}
                     </tr>
