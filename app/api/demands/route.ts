@@ -21,6 +21,7 @@ import {
 import { triggerCreativeDemandSheetSync } from "../../../lib/creativeDemandSheetSync";
 import { validateRequiredDemandFields } from "../../../lib/serverDemandRequiredFields";
 import { makeDemandCode } from "../../../lib/demandCode";
+import { isDepartmentDemandTypeRequired } from "../../../lib/demandTypeRules";
 
 export const runtime = "edge";
 
@@ -1092,6 +1093,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "demand type does not belong to selected department" },
         { status: 400 }
+      );
+    }
+
+    if (
+      isDepartmentDemandTypeRequired((dept as any).config, (dept as any).slug) &&
+      !demandTypeId
+    ) {
+      return NextResponse.json(
+        {
+          error: "demand_type_required",
+          detail: "请选择需求类型；该部门不支持通用需求。",
+        },
+        { status: 400 },
       );
     }
 

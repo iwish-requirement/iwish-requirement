@@ -1,3 +1,5 @@
+import { resolveDemandTypeDeliveryCategory } from "./demandTypeRules.ts";
+
 export interface DemandDeliveryCounts {
   materialCount: number;
   imageMaterialCount: number;
@@ -13,6 +15,7 @@ export interface DemandDeliveryDemandCounts {
 export interface DemandTypeIdentity {
   code?: string | null;
   name?: string | null;
+  config?: unknown;
 }
 
 function normalizeNumber(raw: unknown): number | null {
@@ -140,25 +143,18 @@ export function inferDemandDeliveryDemandCounts(
   deliveryCounts: DemandDeliveryCounts,
   demandType?: DemandTypeIdentity | null,
 ): DemandDeliveryDemandCounts {
-  const identity = `${demandType?.code || ""} ${demandType?.name || ""}`.trim().toLowerCase();
-
-  if (
-    identity.includes("video") ||
-    identity.includes("\u89c6\u9891") ||
-    identity.includes("\u526a\u8f91")
-  ) {
+  const category = resolveDemandTypeDeliveryCategory(demandType);
+  if (category === "video") {
     return { imageDemandCount: 0, videoDemandCount: 1 };
   }
-
-  if (
-    identity.includes("graphic") ||
-    identity.includes("campaign") ||
-    identity.includes("ui_design") ||
-    identity.includes("\u7d20\u6750") ||
-    identity.includes("banner") ||
-    identity.includes("\u8bbe\u8ba1")
-  ) {
+  if (category === "material") {
     return { imageDemandCount: 1, videoDemandCount: 0 };
+  }
+  if (category === "mixed") {
+    return { imageDemandCount: 1, videoDemandCount: 1 };
+  }
+  if (category === "excluded") {
+    return { imageDemandCount: 0, videoDemandCount: 0 };
   }
 
   return {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest, ensureActiveUser } from "../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../lib/serverPermissions";
+import { isDepartmentDemandTypeRequired } from "../../../../lib/demandTypeRules";
 
 export const runtime = "edge";
 
@@ -65,6 +66,53 @@ export async function POST(req: NextRequest) {
 
     const departmentId = Number.parseInt(String(body.departmentId || ""), 10);
     const demandTypeId = Number.parseInt(String(body.demandTypeId || ""), 10);
+    if (!Number.isNaN(departmentId)) {
+      const [{ data: department, error: departmentError }, { data: demandType, error: demandTypeError }] =
+        await Promise.all([
+          supabaseAdmin
+            .from("departments")
+            .select("id, slug, config")
+            .eq("id", departmentId)
+            .maybeSingle(),
+          Number.isNaN(demandTypeId)
+            ? Promise.resolve({ data: null, error: null } as any)
+            : supabaseAdmin
+                .from("demand_types")
+                .select("id, department_id")
+                .eq("id", demandTypeId)
+                .maybeSingle(),
+        ]);
+      if (departmentError || !department) {
+        return NextResponse.json(
+          { error: "department not found", detail: departmentError?.message },
+          { status: 400 },
+        );
+      }
+      if (
+        isDepartmentDemandTypeRequired(
+          (department as any).config,
+          (department as any).slug,
+        ) &&
+        Number.isNaN(demandTypeId)
+      ) {
+        return NextResponse.json(
+          {
+            error: "demand_type_required",
+            detail: "请选择需求类型；该部门不支持通用需求。",
+          },
+          { status: 400 },
+        );
+      }
+      if (
+        !Number.isNaN(demandTypeId) &&
+        (demandTypeError || !demandType || demandType.department_id !== departmentId)
+      ) {
+        return NextResponse.json(
+          { error: "demand type does not belong to selected department" },
+          { status: 400 },
+        );
+      }
+    }
     const toInsert = rows.map((payload) => ({
       creator_id: authResult.user!.id,
       source: "paste",

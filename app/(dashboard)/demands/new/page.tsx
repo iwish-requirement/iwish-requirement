@@ -97,6 +97,7 @@ export default function NewDemandPage() {
   const [draftMessage, setDraftMessage] = useState<string | null>(null);
   const [recentInputs, setRecentInputs] = useState<RecentInput[]>([]);
   const requiresLeaderAssignment = workflowConfig?.rules?.requireLeaderAssignment === true;
+  const demandTypeRequired = workflowConfig?.demandTypeRequired === true;
 
   useEffect(() => {
     const loadDepartments = async () => {
@@ -373,6 +374,8 @@ export default function NewDemandPage() {
           priorities: [...cfg.priorities].sort((a, b) => a.order - b.order),
           statuses: [...cfg.statuses].sort((a, b) => a.order - b.order),
           rules: cfg.rules,
+          demandTypeRequired: cfg.demandTypeRequired,
+          stats: cfg.stats,
         };
         setWorkflowConfig(sorted);
         setPriority((prev) => {
@@ -406,6 +409,10 @@ export default function NewDemandPage() {
   const handlePasteToDrafts = async () => {
     if (!pasteText.trim()) {
       setPasteResult('请先粘贴从飞书或 Excel 复制出来的内容');
+      return;
+    }
+    if (demandTypeRequired && !selectedDemandTypeId) {
+      setPasteResult('请先选择需求类型；当前部门不支持通用需求。');
       return;
     }
 
@@ -643,6 +650,10 @@ export default function NewDemandPage() {
       setError('请填写标题、部门和需求描述');
       return;
     }
+    if (demandTypeRequired && !selectedDemandTypeId) {
+      setError('请选择需求类型；当前部门不支持通用需求。');
+      return;
+    }
     if (!requiresLeaderAssignment && !assigneeEmail.trim()) {
       setError('请选择执行人，该字段为必填');
       return;
@@ -864,13 +875,17 @@ export default function NewDemandPage() {
             </div>
             
             <div>
-              <label className="block text-base font-bold text-slate-700 mb-2">需求类型</label>
+              <label className="block text-base font-bold text-slate-700 mb-2">
+                需求类型{demandTypeRequired && <span className="text-red-500">*</span>}
+              </label>
               <select
                 value={selectedDemandTypeId}
                 onChange={(e) => setSelectedDemandTypeId(e.target.value)}
                 className="w-full px-4 py-3 text-base border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none shadow-sm bg-white transition-all"
               >
-                <option value="">通用需求</option>
+                <option value="">
+                  {demandTypeRequired ? "请选择需求类型" : "通用需求"}
+                </option>
                 {demandTypes.map((item) => (
                   <option key={item.id} value={String(item.id)}>
                     {item.name}

@@ -77,3 +77,27 @@ test("classifies typed historical requests even when their quantity is missing",
     videoDemandCount: 1,
   });
 });
+
+test("uses configured delivery category before type-name heuristics", () => {
+  const deliveryCounts = inferDemandDeliveryCounts({});
+
+  assert.deepEqual(
+    inferDemandDeliveryDemandCounts(deliveryCounts, {
+      code: "graphic",
+      config: { deliveryCategory: "video" },
+    }),
+    { imageDemandCount: 0, videoDemandCount: 1 },
+  );
+  assert.deepEqual(
+    inferDemandDeliveryDemandCounts(deliveryCounts, {
+      config: { deliveryCategory: "mixed" },
+    }),
+    { imageDemandCount: 1, videoDemandCount: 1 },
+  );
+  assert.deepEqual(
+    inferDemandDeliveryDemandCounts(deliveryCounts, {
+      config: { deliveryCategory: "excluded" },
+    }),
+    { imageDemandCount: 0, videoDemandCount: 0 },
+  );
+});
