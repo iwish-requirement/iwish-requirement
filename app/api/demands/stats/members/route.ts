@@ -3,7 +3,10 @@ import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest } from "../../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../../lib/serverPermissions";
 import { buildDemandStatusGroups } from "../../../../../lib/demandStatusGroups";
-import { inferDemandDeliveryCounts } from "../../../../../lib/demandDeliveryStats";
+import {
+  inferDemandDeliveryCounts,
+  inferDemandDeliveryDemandCounts,
+} from "../../../../../lib/demandDeliveryStats";
 import { resolveStatsScopeForUser } from "../../../../../lib/statScope";
 import {
   getStatsMonthBasisLabel,
@@ -26,8 +29,10 @@ interface DepartmentMemberStat {
   materialCount: number;
   completedMaterialCount: number;
   imageMaterialCount: number;
+  completedImageDemandCount: number;
   completedImageMaterialCount: number;
   videoMaterialCount: number;
+  completedVideoDemandCount: number;
   completedVideoMaterialCount: number;
   pageCount: number;
   avgCycleDays: number;
@@ -46,8 +51,10 @@ interface MemberStatsMeta {
     materialCount: boolean;
     completedMaterialCount: boolean;
     imageMaterialCount: boolean;
+    completedImageDemandCount: boolean;
     completedImageMaterialCount: boolean;
     videoMaterialCount: boolean;
+    completedVideoDemandCount: boolean;
     completedVideoMaterialCount: boolean;
     pageCount: boolean;
   };
@@ -115,11 +122,13 @@ function buildMemberStatsMeta(
     deliveryColumns: {
       materialCount: creativeUnifiedDelivery ? false : hasImageMaterialCount || hasVideoMaterialCount,
       completedMaterialCount: creativeUnifiedDelivery ? false : hasImageMaterialCount || hasVideoMaterialCount,
-      imageMaterialCount: creativeUnifiedDelivery || hasImageMaterialCount,
+      imageMaterialCount: creativeUnifiedDelivery ? false : hasImageMaterialCount,
+      completedImageDemandCount: creativeUnifiedDelivery,
       completedImageMaterialCount: creativeUnifiedDelivery,
-      videoMaterialCount: creativeUnifiedDelivery || hasVideoMaterialCount,
+      videoMaterialCount: creativeUnifiedDelivery ? false : hasVideoMaterialCount,
+      completedVideoDemandCount: creativeUnifiedDelivery,
       completedVideoMaterialCount: creativeUnifiedDelivery,
-      pageCount: hasPageCount,
+      pageCount: creativeUnifiedDelivery ? false : hasPageCount,
     },
   };
 }
@@ -189,9 +198,8 @@ export async function GET(req: NextRequest) {
         .eq("is_active", true),
       supabaseAdmin
         .from("demand_types")
-        .select("field_template_id")
-        .eq("department_id", departmentId)
-        .eq("is_active", true),
+        .select("id, name, code, field_template_id, is_active")
+        .eq("department_id", departmentId),
       supabaseAdmin
         .from("score_templates")
         .select("id, items")
@@ -256,8 +264,19 @@ export async function GET(req: NextRequest) {
         configuredTemplateIds.add(template.id);
       }
     }
-    for (const demandType of (demandTypesResult.data || []) as { field_template_id: number | null }[]) {
-      if (typeof demandType.field_template_id === "number" && demandType.field_template_id > 0) {
+    const demandTypeRows = (demandTypesResult.data || []) as {
+      id: number;
+      name: string | null;
+      code: string | null;
+      field_template_id: number | null;
+      is_active: boolean | null;
+    }[];
+    for (const demandType of demandTypeRows) {
+      if (
+        demandType.is_active !== false &&
+        typeof demandType.field_template_id === "number" &&
+        demandType.field_template_id > 0
+      ) {
         configuredTemplateIds.add(demandType.field_template_id);
       }
     }
@@ -300,7 +319,7 @@ export async function GET(req: NextRequest) {
 
     let demandsQuery = supabaseAdmin
       .from("demands")
-      .select("id, assignee_id, status, created_at, finished_at, fields")
+      .select("id, assignee_id, demand_type_id, status, created_at, finished_at, fields")
       .eq("department_id", departmentId);
 
     if (meta.monthBasis === "created") {
@@ -322,6 +341,7 @@ export async function GET(req: NextRequest) {
     const demandRows = ((demandsResult.data || []) as {
       id: number;
       assignee_id: number | null;
+      demand_type_id: number | null;
       status: string;
       created_at: string | null;
       finished_at: string | null;
@@ -377,6 +397,12 @@ export async function GET(req: NextRequest) {
     const statusGroups = buildDemandStatusGroups(
       departmentResult.data ? [departmentResult.data as { status_config?: unknown }] : [],
     );
+    const demandTypeMap = new Map(
+      demandTypeRows.map((demandType) => [
+        demandType.id,
+        { name: demandType.name, code: demandType.code },
+      ]),
+    );
 
     type MemberAccumulator = {
       demandsAssignee: number;
@@ -384,8 +410,10 @@ export async function GET(req: NextRequest) {
       materialCount: number;
       completedMaterialCount: number;
       imageMaterialCount: number;
+      completedImageDemandCount: number;
       completedImageMaterialCount: number;
       videoMaterialCount: number;
+      completedVideoDemandCount: number;
       completedVideoMaterialCount: number;
       pageCount: number;
       cycleDurations: number[];
@@ -399,8 +427,10 @@ export async function GET(req: NextRequest) {
       materialCount: 0,
       completedMaterialCount: 0,
       imageMaterialCount: 0,
+      completedImageDemandCount: 0,
       completedImageMaterialCount: 0,
       videoMaterialCount: 0,
+      completedVideoDemandCount: 0,
       completedVideoMaterialCount: 0,
       pageCount: 0,
       cycleDurations: [],
@@ -433,9 +463,15 @@ export async function GET(req: NextRequest) {
 
       const status = (row.status || "").toLowerCase();
       if (statusGroups.completed.includes(status)) {
+        const deliveryDemandCounts = inferDemandDeliveryDemandCounts(
+          deliveryCounts,
+          row.demand_type_id ? demandTypeMap.get(row.demand_type_id) : null,
+        );
         bucket.demandsCompleted += 1;
         bucket.completedMaterialCount += deliveryCounts.materialCount;
+        bucket.completedImageDemandCount += deliveryDemandCounts.imageDemandCount;
         bucket.completedImageMaterialCount += deliveryCounts.imageMaterialCount;
+        bucket.completedVideoDemandCount += deliveryDemandCounts.videoDemandCount;
         bucket.completedVideoMaterialCount += deliveryCounts.videoMaterialCount;
       }
 
@@ -502,8 +538,10 @@ export async function GET(req: NextRequest) {
         materialCount: bucket.materialCount,
         completedMaterialCount: bucket.completedMaterialCount,
         imageMaterialCount: bucket.imageMaterialCount,
+        completedImageDemandCount: bucket.completedImageDemandCount,
         completedImageMaterialCount: bucket.completedImageMaterialCount,
         videoMaterialCount: bucket.videoMaterialCount,
+        completedVideoDemandCount: bucket.completedVideoDemandCount,
         completedVideoMaterialCount: bucket.completedVideoMaterialCount,
         pageCount: bucket.pageCount,
         avgCycleDays,
@@ -512,7 +550,18 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    items.sort((a, b) => b.demandsCompleted - a.demandsCompleted);
+    items.sort((a, b) => {
+      if (creativeUnifiedDelivery) {
+        const completedDeliveryDemandDiff =
+          b.completedImageDemandCount +
+          b.completedVideoDemandCount -
+          (a.completedImageDemandCount + a.completedVideoDemandCount);
+        if (completedDeliveryDemandDiff !== 0) {
+          return completedDeliveryDemandDiff;
+        }
+      }
+      return b.demandsCompleted - a.demandsCompleted;
+    });
 
     return NextResponse.json({ items, meta });
   } catch (error: any) {

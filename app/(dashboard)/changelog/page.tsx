@@ -35,6 +35,29 @@ interface ReleaseNote {
 
 const releases: ReleaseNote[] = [
   {
+    date: "2026-07-29",
+    title: "创意部成员完成量拆分",
+    summary:
+      "创意部成员统计收敛为素材与视频两类完成指标，需求数和交付数量分别呈现。",
+    audience: ["创意部", "设计团队", "管理者", "部门负责人"],
+    items: [
+      {
+        title: "仅保留四项完成指标",
+        description:
+          "成员统计现在仅展示已完成素材需求数、已完成素材数量、已完成视频需求数和已完成视频数量。",
+        impact: "不再用总需求数混合素材和视频工作量，成员交付结构更直观。",
+        icon: LineChart,
+      },
+      {
+        title: "需求数与数量使用不同口径",
+        description:
+          "需求数优先按 UI、美工、Banner 和视频剪辑等需求类型分类，素材与视频数量继续读取各自的数量字段。",
+        impact: "历史需求即使缺少数量字段，仍可按需求类型计入对应的已完成需求数。",
+        icon: ClipboardList,
+      },
+    ],
+  },
+  {
     date: "2026-07-21",
     title: "需求状态变更留痕与 ID 修复安全加固",
     summary:

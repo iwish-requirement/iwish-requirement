@@ -5,6 +5,16 @@ export interface DemandDeliveryCounts {
   pageCount: number;
 }
 
+export interface DemandDeliveryDemandCounts {
+  imageDemandCount: number;
+  videoDemandCount: number;
+}
+
+export interface DemandTypeIdentity {
+  code?: string | null;
+  name?: string | null;
+}
+
 function normalizeNumber(raw: unknown): number | null {
   if (typeof raw === "number" && Number.isFinite(raw)) {
     return Math.max(0, raw);
@@ -123,5 +133,36 @@ export function inferDemandDeliveryCounts(
     imageMaterialCount: imageMaterialCount + referenceMaterialCount,
     videoMaterialCount,
     pageCount,
+  };
+}
+
+export function inferDemandDeliveryDemandCounts(
+  deliveryCounts: DemandDeliveryCounts,
+  demandType?: DemandTypeIdentity | null,
+): DemandDeliveryDemandCounts {
+  const identity = `${demandType?.code || ""} ${demandType?.name || ""}`.trim().toLowerCase();
+
+  if (
+    identity.includes("video") ||
+    identity.includes("\u89c6\u9891") ||
+    identity.includes("\u526a\u8f91")
+  ) {
+    return { imageDemandCount: 0, videoDemandCount: 1 };
+  }
+
+  if (
+    identity.includes("graphic") ||
+    identity.includes("campaign") ||
+    identity.includes("ui_design") ||
+    identity.includes("\u7d20\u6750") ||
+    identity.includes("banner") ||
+    identity.includes("\u8bbe\u8ba1")
+  ) {
+    return { imageDemandCount: 1, videoDemandCount: 0 };
+  }
+
+  return {
+    imageDemandCount: deliveryCounts.imageMaterialCount > 0 ? 1 : 0,
+    videoDemandCount: deliveryCounts.videoMaterialCount > 0 ? 1 : 0,
   };
 }
