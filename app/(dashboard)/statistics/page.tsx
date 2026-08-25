@@ -107,6 +107,12 @@ interface DepartmentMemberStatsMeta {
   scheduledDateFieldKey: string | null;
   scheduledEnabled: boolean;
   creativeUnifiedDelivery: boolean;
+  monthSourceCounts: {
+    created: number;
+    scheduled: number;
+    finished: number;
+    created_fallback: number;
+  };
   deliveryColumns: {
     materialCount: boolean;
     completedMaterialCount: boolean;
@@ -132,6 +138,12 @@ const EMPTY_MEMBER_STATS_META: DepartmentMemberStatsMeta = {
   scheduledDateFieldKey: null,
   scheduledEnabled: false,
   creativeUnifiedDelivery: false,
+  monthSourceCounts: {
+    created: 0,
+    scheduled: 0,
+    finished: 0,
+    created_fallback: 0,
+  },
   deliveryColumns: {
     materialCount: false,
     completedMaterialCount: false,
@@ -871,9 +883,16 @@ export default function StatsPage() {
             <div>
               <h3 className="text-xl font-bold text-slate-900">部门成员统计</h3>
               {memberStatsMeta && (
-                <p className="mt-1 text-xs text-slate-500">
-                  工作量归属：{memberStatsMeta.monthBasisLabel}
-                </p>
+                <div className="mt-1 space-y-1 text-xs text-slate-500">
+                  <p>工作量归属：{memberStatsMeta.monthBasisLabel}</p>
+                  {memberStatsMeta.monthBasis === "scheduled" &&
+                    (memberStatsMeta.monthSourceCounts?.created_fallback ?? 0) > 0 && (
+                      <p className="text-amber-700">
+                        {(memberStatsMeta.monthSourceCounts?.created_fallback ?? 0)} 条需求缺少有效排期，
+                        已按提交月份兼容统计；其余 {(memberStatsMeta.monthSourceCounts?.scheduled ?? 0)} 条按排期月份统计。
+                      </p>
+                    )}
+                </div>
               )}
             </div>
           </div>

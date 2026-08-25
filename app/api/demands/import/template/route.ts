@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest, ensureActiveUser } from "../../../../../lib/serverAuth";
+import { isDepartmentDemandTypeRequired } from "../../../../../lib/demandTypeRules";
 
 export const runtime = "edge";
 
@@ -53,10 +54,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const [deptResult, activeTemplateResult] = await Promise.all([
+    const [deptResult, activeTemplateResult, demandTypesResult] = await Promise.all([
       supabaseAdmin
         .from("departments")
-        .select("id, name")
+        .select("id, name, slug, config")
         .eq("id", departmentIdNumber)
         .maybeSingle(),
       supabaseAdmin
@@ -67,10 +68,16 @@ export async function GET(req: NextRequest) {
         .order("version", { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabaseAdmin
+        .from("demand_types")
+        .select("id, name, code, field_template_id, is_active")
+        .eq("department_id", departmentIdNumber)
+        .order("order_index", { ascending: true }),
     ] as const);
 
     const { data: dept, error: deptError } = deptResult;
     const { data: activeTemplate, error: tplError } = activeTemplateResult;
+    const { data: demandTypes, error: demandTypesError } = demandTypesResult;
 
     if (deptError || !dept) {
       console.error("[api/demands/import/template] dept error", deptError);
@@ -80,29 +87,58 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    if (demandTypesError) {
+      console.error("[api/demands/import/template] demand types error", demandTypesError);
+      return NextResponse.json(
+        { error: "failed_to_load_demand_types", detail: demandTypesError.message },
+        { status: 500 },
+      );
+    }
+
     let dynamicColumns: { label: string; type: string }[] = [];
 
     if (tplError) {
       console.error("[api/demands/import/template] active template error", tplError);
     }
 
-    if (activeTemplate) {
+    const activeDemandTypes = ((demandTypes || []) as any[]).filter(
+      (demandType) => demandType.is_active !== false,
+    );
+    const templateIds = Array.from(
+      new Set(
+        [
+          activeTemplate?.id,
+          ...activeDemandTypes.map((demandType) => demandType.field_template_id),
+        ].filter((id): id is number => typeof id === "number" && id > 0),
+      ),
+    );
+
+    if (templateIds.length > 0) {
       const { data: fields, error: fieldsError } = await supabaseAdmin
         .from("department_fields")
         .select("label, type, exportable")
         .eq("department_id", departmentIdNumber)
-        .eq("template_id", activeTemplate.id)
+        .in("template_id", templateIds)
         .order("order_index", { ascending: true });
 
       if (fieldsError) {
         console.error("[api/demands/import/template] load fields error", fieldsError);
       } else if (fields) {
+        const seenLabels = new Set<string>();
         dynamicColumns = (fields as any[])
           .filter((field) =>
             field.exportable === undefined || field.exportable === null
               ? true
               : Boolean(field.exportable),
           )
+          .filter((field) => {
+            const label = String(field.label || "").trim();
+            if (!label || seenLabels.has(label)) {
+              return false;
+            }
+            seenLabels.add(label);
+            return true;
+          })
           .map((field) => ({
             label: String(field.label),
             type: String(field.type || "text"),
@@ -113,6 +149,7 @@ export async function GET(req: NextRequest) {
     const headers = [
       "标题",
       "描述",
+      "需求类型编码",
       "提交人邮箱",
       "执行人邮箱",
       "状态",
@@ -126,6 +163,7 @@ export async function GET(req: NextRequest) {
     const sampleRow: string[] = [];
     sampleRow.push("【示例】技术需求：会员中心改版");
     sampleRow.push("示例：简要描述业务背景和主要改动点。");
+    sampleRow.push(String(activeDemandTypes[0]?.code || ""));
     sampleRow.push("creator@example.com");
     sampleRow.push("assignee@example.com");
     sampleRow.push("待处理");
@@ -149,7 +187,15 @@ export async function GET(req: NextRequest) {
     }
 
     const sampleLine = sampleRow.map((cell) => escapeCsvCell(cell)).join(",");
-    const csv = `\uFEFF${headerLine}\n${sampleLine}\n`;
+    const demandTypeRequired = isDepartmentDemandTypeRequired(
+      (dept as any).config,
+      (dept as any).slug,
+      (dept as any).name,
+    );
+    const instructionLine = demandTypeRequired
+      ? "# 创意部必填：需求类型编码请使用系统中启用的编码，例如 graphic 或 video_editing。"
+      : "# 需求类型编码可选；填写时必须使用当前部门已启用的类型编码。";
+    const csv = `\uFEFF${headerLine}\n${instructionLine}\n${sampleLine}\n`;
 
     const departmentName = (dept.name as string | null) || "department";
     const safeDeptName = departmentName.replace(/[^A-Za-z0-9_-]+/g, "");
