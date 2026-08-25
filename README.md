@@ -1,20 +1,31 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# 公司内部需求管理系统
 
-# Run and deploy your AI Studio app
+基于 Next.js、Supabase 和 Cloudflare Pages 的内部需求协作平台，覆盖需求提交、分配、排期、状态流转、评分、统计和审计。
 
-This contains everything you need to run your app locally.
+## 本地运行
 
-View your app in AI Studio: https://ai.studio/apps/temp/2
+前置条件：Node.js，以及项目所需的 Supabase、鉴权和第三方集成环境变量。
 
-## Run Locally
+```bash
+npm install
+npm run dev
+```
 
-**Prerequisites:**  Node.js
+提交前验证：
 
+```bash
+node --test tests/*.test.mjs
+npm run build
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## 项目文档
+
+- [最终产品需求文档](./PRD-final.md)
+- [产品优化需求文档](./PRD-optimization-v2.md)
+- [统计口径与内部排期说明](./STATISTICS-METHODOLOGY.md)
+- [产品更新日志](./PRODUCT-CHANGELOG.md)
+- [开发路线图](./DEVELOPMENT-ROADMAP.md)
+- [前端响应式规范](./FRONTEND-RESPONSIVE-GUIDELINES.md)
+- [创意部动态字段方案](./PRD-creative-dynamic-fields-v3.md)
+
+生产环境由 Cloudflare Pages 承载，Supabase 提供数据库与认证服务。

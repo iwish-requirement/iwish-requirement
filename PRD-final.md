@@ -284,6 +284,8 @@ UI 部门：美术风格、质量、协作
 - 平均评分（结合评分系统）。
 
 > 注：统计的精度要求偏高，故在 `demands` 中明确存储 `finished_at` 等关键时间戳，避免完全依赖日志推算。
+>
+> 当前线上统计的事件时间、成员月份归属、内部排期和兼容规则，以 [《数据统计口径说明》](./STATISTICS-METHODOLOGY.md) 为准。
 
 ---
 
@@ -685,7 +687,7 @@ Dashboard
 - 前端：Next.js + TypeScript + Shadcn + Tailwind。
 - 后端：Next.js Route Handlers + Supabase Postgres + RLS。
 - ORM：Drizzle（`db/schema.ts` 为权威定义）。
-- 部署：Next.js 部署到 Vercel，Supabase 托管数据库与 Auth。
+- 部署：Next.js 部署到 Cloudflare Pages，Supabase 托管数据库与 Auth。
 
 ---
 
