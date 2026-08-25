@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -63,4 +64,15 @@ test("chunks large in-filters without losing values", () => {
 
   assert.deepEqual(chunks.map((chunk) => chunk.length), [100, 100, 5]);
   assert.deepEqual(chunks.flat(), values);
+});
+
+test("dynamic field statistics uses full pagination without a hard row cap", async () => {
+  const route = await readFile(
+    new URL("../app/api/demands/stats/dynamic/route.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(route, /fetchAllSupabaseRows/);
+  assert.match(route, /\.order\("id", \{ ascending: true \}\)\.range\(from, to\)/);
+  assert.doesNotMatch(route, /MAX_ROWS|\.limit\(5000\)/);
 });

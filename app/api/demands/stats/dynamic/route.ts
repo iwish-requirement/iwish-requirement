@@ -7,6 +7,7 @@ import {
   getBusinessDayEndExclusiveIso,
   getBusinessDayStartIso,
 } from "../../../../../lib/businessDateRange";
+import { fetchAllSupabaseRows } from "../../../../../lib/supabasePagination";
 
 import { DepartmentDynamicFieldStats, FieldDefinition } from "../../../../../types";
 
@@ -229,55 +230,38 @@ export async function GET(req: NextRequest) {
       customFieldFilters.push({ key: fieldKey, value });
     }
 
-    let query: any = supabaseAdmin
-      .from("demands")
-      .select("id, department_id, fields, status, created_at", { count: "exact" })
-      .eq("department_id", departmentId);
+    const normalizedStatus = (statusParam || "").toString().toLowerCase();
+    const validStatus = /^[a-z0-9_-]{1,80}$/.test(normalizedStatus)
+      ? normalizedStatus
+      : null;
 
+    const rows = await fetchAllSupabaseRows<any>((from, to) => {
+      let query: any = supabaseAdmin
+        .from("demands")
+        .select("id, department_id, fields, status, created_at")
+        .eq("department_id", departmentId);
 
-    if (statusParam) {
-      const normalized = (statusParam || "").toString().toLowerCase();
-      if (/^[a-z0-9_-]{1,80}$/.test(normalized)) {
-        query = query.eq("status", normalized);
+      if (validStatus) {
+        query = query.eq("status", validStatus);
       }
-    }
-
-    if (createdFrom) {
-      query = query.gte("created_at", createdFrom);
-    }
-
-    if (createdTo) {
-      query = query.lt("created_at", createdTo);
-    }
-
-    if (dueFrom) {
-      query = query.gte("fields->>dueDate", dueFrom);
-    }
-
-    if (dueTo) {
-      query = query.lte("fields->>dueDate", dueTo);
-    }
-
-    if (customFieldFilters.length > 0) {
+      if (createdFrom) {
+        query = query.gte("created_at", createdFrom);
+      }
+      if (createdTo) {
+        query = query.lt("created_at", createdTo);
+      }
+      if (dueFrom) {
+        query = query.gte("fields->>dueDate", dueFrom);
+      }
+      if (dueTo) {
+        query = query.lte("fields->>dueDate", dueTo);
+      }
       for (const filter of customFieldFilters) {
         query = query.eq(`fields->>${filter.key}`, filter.value);
       }
-    }
 
-
-    const MAX_ROWS = 5000;
-    const { data, error, count } = await (query as any).limit(MAX_ROWS);
-
-
-    if (error) {
-      console.error("[api/demands/stats/dynamic] query error", error);
-      return NextResponse.json(
-        { error: "failed to load demands for stats", detail: error.message },
-        { status: 500 },
-      );
-    }
-
-    const rows = (data || []) as any[];
+      return query.order("id", { ascending: true }).range(from, to);
+    });
 
     type Accumulator = {
       label: string;
@@ -337,7 +321,7 @@ export async function GET(req: NextRequest) {
     const responseBody: DepartmentDynamicFieldStats = {
       departmentId: dept.id as number,
       departmentName: (dept.name as string) || undefined,
-      totalDemands: count ?? rows.length,
+      totalDemands: rows.length,
       fields: fieldsStats,
     };
 
