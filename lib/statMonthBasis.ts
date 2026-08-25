@@ -12,6 +12,13 @@ export interface DemandMonthBasisRow {
   fields?: unknown;
 }
 
+export type StatsMonthSource = "created" | "scheduled" | "finished" | "created_fallback";
+
+export interface DemandMonthBasisResolution {
+  date: Date | null;
+  source: StatsMonthSource;
+}
+
 const SCHEDULED_DATE_FIELD_KEYS = [
   "scheduled_start_date",
   "scheduled_date",
@@ -144,16 +151,36 @@ export function getDemandMonthBasisDate(
   basis: StatsMonthBasis,
   scheduledDateFieldKey: string | null,
 ): Date | null {
+  return getDemandMonthBasisResolution(demand, basis, scheduledDateFieldKey).date;
+}
+
+export function getDemandMonthBasisResolution(
+  demand: DemandMonthBasisRow,
+  basis: StatsMonthBasis,
+  scheduledDateFieldKey: string | null,
+): DemandMonthBasisResolution {
   if (basis === "finished") {
-    return parseDemandMonthValue(demand.finished_at ?? null);
+    return {
+      date: parseDemandMonthValue(demand.finished_at ?? null),
+      source: "finished",
+    };
   }
   if (basis === "scheduled") {
-    return (
-      parseDemandMonthValue(getFieldValue(demand.fields, scheduledDateFieldKey)) ||
-      parseDemandMonthValue(demand.created_at ?? null)
+    const scheduledDate = parseDemandMonthValue(
+      getFieldValue(demand.fields, scheduledDateFieldKey),
     );
+    if (scheduledDate) {
+      return { date: scheduledDate, source: "scheduled" };
+    }
+    return {
+      date: parseDemandMonthValue(demand.created_at ?? null),
+      source: "created_fallback",
+    };
   }
-  return parseDemandMonthValue(demand.created_at ?? null);
+  return {
+    date: parseDemandMonthValue(demand.created_at ?? null),
+    source: "created",
+  };
 }
 
 export function isDemandInMonthRange(

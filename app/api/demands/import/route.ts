@@ -7,6 +7,12 @@ import {
   findMissingRequiredDemandFields,
 } from "../../../../lib/demandRequiredFieldUtils";
 import { makeDemandCode } from "../../../../lib/demandCode";
+import { isDepartmentDemandTypeRequired } from "../../../../lib/demandTypeRules";
+import {
+  findDemandTypeImportColumn,
+  resolveImportDemandType,
+  type ImportDemandType,
+} from "../../../../lib/demandImportRules";
 
 export const runtime = "edge";
 
@@ -158,10 +164,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const [deptResult, activeTemplateResult] = await Promise.all([
+    const [deptResult, activeTemplateResult, demandTypesResult] = await Promise.all([
       supabaseAdmin
         .from("departments")
-        .select("id, slug")
+        .select("id, name, slug, config")
         .eq("id", departmentIdNumber)
         .maybeSingle(),
       supabaseAdmin
@@ -172,10 +178,16 @@ export async function POST(req: NextRequest) {
         .order("version", { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabaseAdmin
+        .from("demand_types")
+        .select("id, code, name, field_template_id, is_active")
+        .eq("department_id", departmentIdNumber)
+        .order("order_index", { ascending: true }),
     ] as const);
 
     const { data: dept, error: deptError } = deptResult;
     const { data: activeTemplate, error: tplError } = activeTemplateResult;
+    const { data: demandTypeRows, error: demandTypesError } = demandTypesResult;
 
     if (deptError || !dept) {
       console.error("[api/demands/import] dept error", deptError);
@@ -185,27 +197,55 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const fieldTemplateId: number | null = activeTemplate ? (activeTemplate.id as number) : null;
+    if (demandTypesError) {
+      console.error("[api/demands/import] demand types error", demandTypesError);
+      return NextResponse.json(
+        { error: "failed_to_load_demand_types", detail: demandTypesError.message },
+        { status: 500 },
+      );
+    }
+
+    const activeFieldTemplateId: number | null = activeTemplate ? (activeTemplate.id as number) : null;
+    const demandTypes: ImportDemandType[] = (demandTypeRows || []).map((row: any) => ({
+      id: row.id as number,
+      code: (row.code as string | null) ?? null,
+      name: (row.name as string | null) ?? null,
+      fieldTemplateId: (row.field_template_id as number | null) ?? null,
+      isActive: row.is_active !== false,
+    }));
+    const demandTypeRequired = isDepartmentDemandTypeRequired(
+      (dept as any).config,
+      (dept as any).slug,
+      (dept as any).name,
+    );
 
     if (tplError) {
       console.error("[api/demands/import] active template error", tplError);
     }
 
-    let dynamicFieldMap = new Map<
-      string,
-      { key: string; label: string; type: string; required: boolean }
-    >();
+    type ImportField = { key: string; label: string; type: string; required: boolean };
+    const fieldsByTemplate = new Map<number, Map<string, ImportField>>();
+    const templateIds = Array.from(
+      new Set(
+        [activeFieldTemplateId, ...demandTypes.map((demandType) => demandType.fieldTemplateId)]
+          .filter((id): id is number => typeof id === "number" && id > 0),
+      ),
+    );
 
-    if (fieldTemplateId !== null) {
+    if (templateIds.length > 0) {
       const { data: fields, error: fieldsError } = await supabaseAdmin
         .from("department_fields")
-        .select("key, label, type, required, exportable")
+        .select("template_id, key, label, type, required, exportable")
         .eq("department_id", departmentIdNumber)
-        .eq("template_id", fieldTemplateId)
+        .in("template_id", templateIds)
         .order("order_index", { ascending: true });
 
       if (fieldsError) {
         console.error("[api/demands/import] load fields error", fieldsError);
+        return NextResponse.json(
+          { error: "failed_to_load_department_fields", detail: fieldsError.message },
+          { status: 500 },
+        );
       } else if (fields) {
         for (const field of fields as any[]) {
           if (field.exportable !== undefined && field.exportable !== null && !Boolean(field.exportable)) {
@@ -213,12 +253,15 @@ export async function POST(req: NextRequest) {
           }
           const label = String(field.label || "").trim();
           if (!label) continue;
-          dynamicFieldMap.set(label, {
+          const templateId = Number(field.template_id);
+          const templateFieldMap = fieldsByTemplate.get(templateId) || new Map<string, ImportField>();
+          templateFieldMap.set(label, {
             key: String(field.key),
             label,
             type: String(field.type || "text"),
             required: !!field.required,
           });
+          fieldsByTemplate.set(templateId, templateFieldMap);
         }
       }
     }
@@ -257,6 +300,7 @@ export async function POST(req: NextRequest) {
     const statusCol = headerIndex["状态"];
     const priorityCol = headerIndex["优先级"];
     const dueDateCol = headerIndex["截止日期"];
+    const demandTypeCol = findDemandTypeImportColumn(headerIndex);
 
     if (
       titleCol === undefined ||
@@ -329,6 +373,7 @@ export async function POST(req: NextRequest) {
       const statusLabelRaw = statusCol !== undefined ? row[statusCol] ?? "" : "";
       const priorityRaw = priorityCol !== undefined ? row[priorityCol] ?? "" : "";
       const dueDateRaw = dueDateCol !== undefined ? row[dueDateCol] ?? "" : "";
+      const demandTypeRaw = demandTypeCol !== undefined ? row[demandTypeCol] ?? "" : "";
 
       const creatorEmail = creatorEmailRaw.trim();
       const assigneeEmail = assigneeEmailRaw.trim();
@@ -365,6 +410,31 @@ export async function POST(req: NextRequest) {
       const dbStatus = statusEnum ? toDbStatus(statusEnum) : "pending";
       const priority = normalizePriority(priorityRaw);
       const dueDate = dueDateRaw ? String(dueDateRaw).trim() : "";
+      const demandTypeToken = String(demandTypeRaw || "").trim();
+      const demandType = resolveImportDemandType(demandTypeToken, demandTypes);
+
+      if (demandTypeToken && !demandType) {
+        results.push({
+          rowNumber,
+          success: false,
+          message: `需求类型不存在或已停用：${demandTypeToken}`,
+        });
+        continue;
+      }
+
+      if (demandTypeRequired && !demandType) {
+        results.push({
+          rowNumber,
+          success: false,
+          message: "创意部需求必须填写有效的需求类型编码",
+        });
+        continue;
+      }
+
+      const fieldTemplateId = demandType?.fieldTemplateId ?? activeFieldTemplateId;
+      const dynamicFieldMap = fieldTemplateId
+        ? fieldsByTemplate.get(fieldTemplateId) || new Map<string, ImportField>()
+        : new Map<string, ImportField>();
 
       const customFields: Record<string, any> = {};
 
@@ -378,7 +448,8 @@ export async function POST(req: NextRequest) {
           colName === "执行人邮箱" ||
           colName === "状态" ||
           colName === "优先级" ||
-          colName === "截止日期"
+          colName === "截止日期" ||
+          (demandTypeCol !== undefined && colIndex === demandTypeCol)
         ) {
           continue;
         }
@@ -456,6 +527,7 @@ export async function POST(req: NextRequest) {
         department_id: departmentIdNumber,
         creator_id: creatorUser.id,
         assignee_id: assigneeUser.id,
+        demand_type_id: demandType?.id ?? null,
         title,
         status: dbStatus || "pending",
         field_template_id: fieldTemplateId,

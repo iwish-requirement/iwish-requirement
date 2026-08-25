@@ -2919,7 +2919,7 @@ export default function DemandsPage() {
       >
         <div className="space-y-4 text-sm text-slate-700">
           <p className="text-xs text-slate-500">
-            说明：一次导入只针对一个部门，请先选择部门，再按模板准备 CSV 文件。列头至少需要包含「标题」「提交人邮箱」「执行人邮箱」，其它列可选。
+            说明：一次导入只针对一个部门，请先选择部门，再按模板准备 CSV 文件。列头至少需要包含「标题」「提交人邮箱」「执行人邮箱」；创意部还必须填写「需求类型编码」，请以最新下载模板为准。
           </p>
 
           <div className="space-y-2">

@@ -43,6 +43,7 @@ out/
 
 # Project local data (do not sync to GitHub)
 .codebuddy/
+supabase/.temp/
 
 # Editor directories and files
 .vscode/*

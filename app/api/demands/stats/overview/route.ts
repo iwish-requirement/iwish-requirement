@@ -10,6 +10,7 @@ import {
   getBusinessTrendMonths,
   getCurrentBusinessPeriod,
 } from "../../../../../lib/businessDateRange";
+import { fetchAllSupabaseRows } from "../../../../../lib/supabasePagination";
 
 export const runtime = "edge";
 
@@ -110,19 +111,19 @@ export async function GET(req: NextRequest) {
     }
     const { scope, departmentId } = scopeResult.scope!;
 
-    const { data: departmentStatusRows, error: departmentStatusError } = await supabaseAdmin
-      .from("departments")
-      .select("id, name, status_config");
+    const departmentStatusRows = await fetchAllSupabaseRows<{
+      id: number;
+      name: string | null;
+      status_config: unknown;
+    }>((from, to) =>
+      supabaseAdmin
+        .from("departments")
+        .select("id, name, status_config")
+        .order("id", { ascending: true })
+        .range(from, to),
+    );
 
-    if (departmentStatusError) {
-      console.error("[api/demands/stats/overview] load department status config error", departmentStatusError);
-      return NextResponse.json(
-        { error: "failed_to_load_overview_stats" },
-        { status: 500 },
-      );
-    }
-
-    const statusGroups = buildDemandStatusGroups((departmentStatusRows || []) as { status_config?: unknown }[]);
+    const statusGroups = buildDemandStatusGroups(departmentStatusRows as { status_config?: unknown }[]);
     const trendMonths = getTrendMonths(period, 6);
     const trendStart = trendMonths.length > 0 ? getBusinessMonthRange(trendMonths[0]).start : start;
 
@@ -135,14 +136,25 @@ export async function GET(req: NextRequest) {
       departmentId,
     );
 
-    const demandsCompletedQuery = applyDepartmentFilter(
-      supabaseAdmin
-        .from("demands")
-        .select("created_at, assigned_at, started_at, finished_at, delayed_at", { count: "exact" })
-        .in("status", statusGroups.completed)
-        .gte("finished_at", start)
-        .lt("finished_at", end),
-      departmentId,
+    const demandsCompletedQuery = fetchAllSupabaseRows<{
+      id: number;
+      created_at: string | null;
+      assigned_at: string | null;
+      started_at: string | null;
+      finished_at: string | null;
+      delayed_at: string | null;
+    }>((from, to) =>
+      applyDepartmentFilter(
+        supabaseAdmin
+          .from("demands")
+          .select("id, created_at, assigned_at, started_at, finished_at, delayed_at")
+          .in("status", statusGroups.completed)
+          .gte("finished_at", start)
+          .lt("finished_at", end),
+        departmentId,
+      )
+        .order("id", { ascending: true })
+        .range(from, to),
     );
 
     const demandsInProgressQuery = applyDepartmentFilter(
@@ -165,55 +177,109 @@ export async function GET(req: NextRequest) {
       departmentId,
     );
 
-    const departmentShareQuery = applyDepartmentFilter(
-      supabaseAdmin
-        .from("demands")
-        .select("department_id, customer_id, project_id, demand_type_id, creator_id")
-        .gte("created_at", start)
-        .lt("created_at", end),
-      departmentId,
+    const departmentShareQuery = fetchAllSupabaseRows<{
+      id: number;
+      department_id: number | null;
+      customer_id: number | null;
+      project_id: number | null;
+      demand_type_id: number | null;
+      creator_id: number | null;
+    }>((from, to) =>
+      applyDepartmentFilter(
+        supabaseAdmin
+          .from("demands")
+          .select("id, department_id, customer_id, project_id, demand_type_id, creator_id")
+          .gte("created_at", start)
+          .lt("created_at", end),
+        departmentId,
+      )
+        .order("id", { ascending: true })
+        .range(from, to),
     );
 
-    const trendQuery = applyDepartmentFilter(
-      supabaseAdmin
-        .from("demands")
-        .select("created_at, status")
-        .gte("created_at", trendStart)
-        .lt("created_at", end),
-      departmentId,
+    const trendQuery = fetchAllSupabaseRows<{
+      id: number;
+      created_at: string | null;
+      status: string | null;
+    }>((from, to) =>
+      applyDepartmentFilter(
+        supabaseAdmin
+          .from("demands")
+          .select("id, created_at, status")
+          .gte("created_at", trendStart)
+          .lt("created_at", end),
+        departmentId,
+      )
+        .order("id", { ascending: true })
+        .range(from, to),
     );
 
-    const trendCompletedQuery = applyDepartmentFilter(
-      supabaseAdmin
-        .from("demands")
-        .select("finished_at, status")
-        .in("status", statusGroups.completed)
-        .gte("finished_at", trendStart)
-        .lt("finished_at", end),
-      departmentId,
+    const trendCompletedQuery = fetchAllSupabaseRows<{
+      id: number;
+      finished_at: string | null;
+      status: string | null;
+    }>((from, to) =>
+      applyDepartmentFilter(
+        supabaseAdmin
+          .from("demands")
+          .select("id, finished_at, status")
+          .in("status", statusGroups.completed)
+          .gte("finished_at", trendStart)
+          .lt("finished_at", end),
+        departmentId,
+      )
+        .order("id", { ascending: true })
+        .range(from, to),
     );
 
-    const scoreRecordsQuery = applyDepartmentFilter(
-      supabaseAdmin
-        .from("score_records")
-        .select("scores, target_user_id")
-        .eq("period", period),
-      departmentId,
+    const scoreRecordsQuery = fetchAllSupabaseRows<{
+      id: number;
+      scores: Record<string, number | string> | null;
+      target_user_id: number | null;
+    }>((from, to) =>
+      applyDepartmentFilter(
+        supabaseAdmin
+          .from("score_records")
+          .select("id, scores, target_user_id")
+          .eq("period", period),
+        departmentId,
+      )
+        .order("id", { ascending: true })
+        .range(from, to),
     );
 
-    const scoreTasksQuery = applyDepartmentFilter(
-      supabaseAdmin
-        .from("score_tasks")
-        .select("status")
-        .eq("period", period),
-      departmentId,
+    const scoreTasksQuery = fetchAllSupabaseRows<{
+      id: number;
+      status: string | null;
+    }>((from, to) =>
+      applyDepartmentFilter(
+        supabaseAdmin
+          .from("score_tasks")
+          .select("id, status")
+          .eq("period", period),
+        departmentId,
+      )
+        .order("id", { ascending: true })
+        .range(from, to),
     );
 
-    const departmentsQuery = Promise.resolve({ data: departmentStatusRows, error: null } as any);
-    const customersQuery = supabaseAdmin.from("customers").select("id, name");
-    const projectsQuery = supabaseAdmin.from("projects").select("id, name");
-    const demandTypesQuery = supabaseAdmin.from("demand_types").select("id, name");
-    const usersQuery = supabaseAdmin.from("users").select("id, name, email");
+    const departmentsQuery = Promise.resolve(departmentStatusRows);
+    const customersQuery = fetchAllSupabaseRows<{ id: number; name: string | null }>((from, to) =>
+      supabaseAdmin.from("customers").select("id, name").order("id").range(from, to),
+    );
+    const projectsQuery = fetchAllSupabaseRows<{ id: number; name: string | null }>((from, to) =>
+      supabaseAdmin.from("projects").select("id, name").order("id").range(from, to),
+    );
+    const demandTypesQuery = fetchAllSupabaseRows<{ id: number; name: string | null }>((from, to) =>
+      supabaseAdmin.from("demand_types").select("id, name").order("id").range(from, to),
+    );
+    const usersQuery = fetchAllSupabaseRows<{
+      id: number;
+      name: string | null;
+      email: string | null;
+    }>((from, to) =>
+      supabaseAdmin.from("users").select("id, name, email").order("id").range(from, to),
+    );
 
     const [
       demandsCreatedResult,
@@ -249,19 +315,8 @@ export async function GET(req: NextRequest) {
 
     const errors = [
       demandsCreatedResult.error,
-      demandsCompletedResult.error,
       demandsInProgressResult.error,
       demandsDelayedResult.error,
-      departmentShareResult.error,
-      trendResult.error,
-      trendCompletedResult.error,
-      scoreRecordsResult.error,
-      scoreTasksResult.error,
-      departmentsResult.error,
-      customersResult.error,
-      projectsResult.error,
-      demandTypesResult.error,
-      usersResult.error,
     ].filter(Boolean);
 
     if (errors.length > 0) {
@@ -273,7 +328,7 @@ export async function GET(req: NextRequest) {
     }
 
     const demandsCreated = demandsCreatedResult.count ?? 0;
-    const demandsCompleted = demandsCompletedResult.count ?? 0;
+    const demandsCompleted = demandsCompletedResult.length;
     const demandsInProgress = demandsInProgressResult.count ?? 0;
     const demandsDelayed = demandsDelayedResult.count ?? 0;
 
@@ -281,7 +336,8 @@ export async function GET(req: NextRequest) {
     let avgAssignHours = 0;
     let avgResponseHours = 0;
     let avgProcessingHours = 0;
-    const completedRows = (demandsCompletedResult.data || []) as {
+    const completedRows = demandsCompletedResult as {
+      id: number;
       created_at: string | null;
       assigned_at: string | null;
       started_at: string | null;
@@ -344,25 +400,25 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const deptRows = (departmentsResult.data || []) as { id: number; name: string | null }[];
+    const deptRows = departmentsResult as { id: number; name: string | null }[];
     const deptMap = new Map<number, string>();
     for (const dept of deptRows) {
       deptMap.set(dept.id, (dept.name || "未命名部门").toString());
     }
     const customerMap = new Map<number, string>();
-    for (const customer of (customersResult.data || []) as { id: number; name: string | null }[]) {
+    for (const customer of customersResult as { id: number; name: string | null }[]) {
       customerMap.set(customer.id, (customer.name || "未命名客户").toString());
     }
     const projectMap = new Map<number, string>();
-    for (const project of (projectsResult.data || []) as { id: number; name: string | null }[]) {
+    for (const project of projectsResult as { id: number; name: string | null }[]) {
       projectMap.set(project.id, (project.name || "未命名项目").toString());
     }
     const demandTypeMap = new Map<number, string>();
-    for (const type of (demandTypesResult.data || []) as { id: number; name: string | null }[]) {
+    for (const type of demandTypesResult as { id: number; name: string | null }[]) {
       demandTypeMap.set(type.id, (type.name || "未命名类型").toString());
     }
     const userMap = new Map<number, string>();
-    for (const user of (usersResult.data || []) as { id: number; name: string | null; email: string | null }[]) {
+    for (const user of usersResult as { id: number; name: string | null; email: string | null }[]) {
       userMap.set(user.id, (user.name || user.email || "未命名提交人").toString());
     }
 
@@ -371,7 +427,8 @@ export async function GET(req: NextRequest) {
     const projectAggregate = new Map<number, number>();
     const demandTypeAggregate = new Map<number, number>();
     const creatorAggregate = new Map<number, number>();
-    const departmentRows = (departmentShareResult.data || []) as {
+    const departmentRows = departmentShareResult as {
+      id: number;
       department_id: number | null;
       customer_id: number | null;
       project_id: number | null;
@@ -415,7 +472,7 @@ export async function GET(req: NextRequest) {
       trendIndexMap.set(month, { demands: 0, completed: 0 });
     }
 
-    const trendRows = (trendResult.data || []) as { created_at: string | null; status: string | null }[];
+    const trendRows = trendResult as { id: number; created_at: string | null; status: string | null }[];
     for (const row of trendRows) {
       if (!row.created_at) {
         continue;
@@ -431,7 +488,8 @@ export async function GET(req: NextRequest) {
       bucket.demands += 1;
     }
 
-    const trendCompletedRows = (trendCompletedResult.data || []) as {
+    const trendCompletedRows = trendCompletedResult as {
+      id: number;
       finished_at: string | null;
       status: string | null;
     }[];
@@ -459,7 +517,8 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    const scoreRows = (scoreRecordsResult.data || []) as {
+    const scoreRows = scoreRecordsResult as {
+      id: number;
       scores: Record<string, number | string> | null;
       target_user_id: number | null;
     }[];
@@ -492,8 +551,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const totalTasks = ((scoreTasksResult.data || []) as { status: string | null }[]).length;
-    const completedTasks = ((scoreTasksResult.data || []) as { status: string | null }[]).filter((task) => {
+    const totalTasks = (scoreTasksResult as { id: number; status: string | null }[]).length;
+    const completedTasks = (scoreTasksResult as { id: number; status: string | null }[]).filter((task) => {
       return (task.status || "").toLowerCase() === "completed";
     }).length;
     const scoreCoverageRate = totalTasks > 0 ? completedTasks / totalTasks : 0;

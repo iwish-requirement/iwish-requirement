@@ -9,12 +9,14 @@ import {
 } from "../../../../../lib/demandDeliveryStats";
 import { resolveStatsScopeForUser } from "../../../../../lib/statScope";
 import {
+  getDemandMonthBasisResolution,
   getStatsMonthBasisLabel,
-  isDemandInMonthRange,
   resolveDepartmentStatsMonthConfig,
+  type StatsMonthSource,
   type StatsMonthBasis,
 } from "../../../../../lib/statMonthBasis";
 import { getBusinessMonthRange, getCurrentBusinessPeriod } from "../../../../../lib/businessDateRange";
+import { chunkValues, fetchAllSupabaseRows } from "../../../../../lib/supabasePagination";
 
 
 export const runtime = "edge";
@@ -47,6 +49,7 @@ interface MemberStatsMeta {
   scheduledDateFieldKey: string | null;
   scheduledEnabled: boolean;
   creativeUnifiedDelivery: boolean;
+  monthSourceCounts: Record<StatsMonthSource, number>;
   deliveryColumns: {
     materialCount: boolean;
     completedMaterialCount: boolean;
@@ -119,6 +122,12 @@ function buildMemberStatsMeta(
     scheduledDateFieldKey: monthConfig.scheduledDateFieldKey,
     scheduledEnabled: monthConfig.scheduledEnabled,
     creativeUnifiedDelivery,
+    monthSourceCounts: {
+      created: 0,
+      scheduled: 0,
+      finished: 0,
+      created_fallback: 0,
+    },
     deliveryColumns: {
       materialCount: creativeUnifiedDelivery ? false : hasImageMaterialCount || hasVideoMaterialCount,
       completedMaterialCount: creativeUnifiedDelivery ? false : hasImageMaterialCount || hasVideoMaterialCount,
@@ -177,15 +186,35 @@ export async function GET(req: NextRequest) {
       demandTypesResult,
       scoreTemplateResult,
     ] = await Promise.all([
-      supabaseAdmin
-        .from("users")
-        .select("id, name, email, role, status")
-        .eq("department_id", departmentId),
-      supabaseAdmin
-        .from("score_records")
-        .select("target_user_id, scores, period, department_id")
-        .eq("period", period)
-        .eq("department_id", departmentId),
+      fetchAllSupabaseRows<{
+        id: number;
+        name: string | null;
+        email: string | null;
+        role: string | null;
+        status: string | null;
+      }>((from, to) =>
+        supabaseAdmin
+          .from("users")
+          .select("id, name, email, role, status")
+          .eq("department_id", departmentId)
+          .order("id")
+          .range(from, to),
+      ),
+      fetchAllSupabaseRows<{
+        id: number;
+        target_user_id: number;
+        scores: unknown;
+        period: string;
+        department_id: number | null;
+      }>((from, to) =>
+        supabaseAdmin
+          .from("score_records")
+          .select("id, target_user_id, scores, period, department_id")
+          .eq("period", period)
+          .eq("department_id", departmentId)
+          .order("id")
+          .range(from, to),
+      ),
       supabaseAdmin
         .from("departments")
         .select("name, slug, config, status_config")
@@ -196,10 +225,21 @@ export async function GET(req: NextRequest) {
         .select("id")
         .eq("department_id", departmentId)
         .eq("is_active", true),
-      supabaseAdmin
-        .from("demand_types")
-        .select("id, name, code, field_template_id, config, is_active")
-        .eq("department_id", departmentId),
+      fetchAllSupabaseRows<{
+        id: number;
+        name: string | null;
+        code: string | null;
+        field_template_id: number | null;
+        config: Record<string, unknown> | null;
+        is_active: boolean | null;
+      }>((from, to) =>
+        supabaseAdmin
+          .from("demand_types")
+          .select("id, name, code, field_template_id, config, is_active")
+          .eq("department_id", departmentId)
+          .order("id")
+          .range(from, to),
+      ),
       supabaseAdmin
         .from("score_templates")
         .select("id, items")
@@ -209,22 +249,6 @@ export async function GET(req: NextRequest) {
         .limit(1)
         .maybeSingle(),
     ] as const);
-
-    if (usersResult.error) {
-      console.error("[api/demands/stats/members] users query error", usersResult.error);
-      return NextResponse.json(
-        { error: "failed_to_load_users", detail: usersResult.error.message },
-        { status: 500 },
-      );
-    }
-
-    if (scoreRecordsResult.error) {
-      console.error("[api/demands/stats/members] score_records query error", scoreRecordsResult.error);
-      return NextResponse.json(
-        { error: "failed_to_load_scores", detail: scoreRecordsResult.error.message },
-        { status: 500 },
-      );
-    }
 
     if (departmentResult.error) {
       console.error("[api/demands/stats/members] department query error", departmentResult.error);
@@ -238,14 +262,6 @@ export async function GET(req: NextRequest) {
       console.error("[api/demands/stats/members] field templates query error", activeFieldTemplatesResult.error);
       return NextResponse.json(
         { error: "failed_to_load_department_fields", detail: activeFieldTemplatesResult.error.message },
-        { status: 500 },
-      );
-    }
-
-    if (demandTypesResult.error) {
-      console.error("[api/demands/stats/members] demand types query error", demandTypesResult.error);
-      return NextResponse.json(
-        { error: "failed_to_load_demand_types", detail: demandTypesResult.error.message },
         { status: 500 },
       );
     }
@@ -264,7 +280,7 @@ export async function GET(req: NextRequest) {
         configuredTemplateIds.add(template.id);
       }
     }
-    const demandTypeRows = (demandTypesResult.data || []) as {
+    const demandTypeRows = demandTypesResult as {
       id: number;
       name: string | null;
       code: string | null;
@@ -318,28 +334,7 @@ export async function GET(req: NextRequest) {
       creativeUnifiedDelivery,
     );
 
-    let demandsQuery = supabaseAdmin
-      .from("demands")
-      .select("id, assignee_id, demand_type_id, status, created_at, finished_at, fields")
-      .eq("department_id", departmentId);
-
-    if (meta.monthBasis === "created") {
-      demandsQuery = demandsQuery.gte("created_at", start).lt("created_at", end);
-    } else if (meta.monthBasis === "finished") {
-      demandsQuery = demandsQuery.gte("finished_at", start).lt("finished_at", end);
-    }
-
-    const demandsResult = await demandsQuery;
-
-    if (demandsResult.error) {
-      console.error("[api/demands/stats/members] demands query error", demandsResult.error);
-      return NextResponse.json(
-        { error: "failed_to_load_demands", detail: demandsResult.error.message },
-        { status: 500 },
-      );
-    }
-
-    const demandRows = ((demandsResult.data || []) as {
+    const rawDemandRows = await fetchAllSupabaseRows<{
       id: number;
       assignee_id: number | null;
       demand_type_id: number | null;
@@ -347,8 +342,37 @@ export async function GET(req: NextRequest) {
       created_at: string | null;
       finished_at: string | null;
       fields: unknown;
-    }[]).filter((row) => {
-      return isDemandInMonthRange(row, meta.monthBasis, meta.scheduledDateFieldKey, start, end);
+    }>((from, to) => {
+      let pageQuery = supabaseAdmin
+        .from("demands")
+        .select("id, assignee_id, demand_type_id, status, created_at, finished_at, fields")
+        .eq("department_id", departmentId);
+
+      if (meta.monthBasis === "created") {
+        pageQuery = pageQuery.gte("created_at", start).lt("created_at", end);
+      } else if (meta.monthBasis === "finished") {
+        pageQuery = pageQuery.gte("finished_at", start).lt("finished_at", end);
+      }
+
+      return pageQuery.order("id", { ascending: true }).range(from, to);
+    });
+
+    const startTime = new Date(start).getTime();
+    const endTime = new Date(end).getTime();
+    const demandRows = rawDemandRows.filter((row) => {
+      const resolution = getDemandMonthBasisResolution(
+        row,
+        meta.monthBasis,
+        meta.scheduledDateFieldKey,
+      );
+      const time = resolution.date?.getTime() ?? Number.NaN;
+      if (!Number.isFinite(time) || time < startTime || time >= endTime) {
+        return false;
+      }
+      if (typeof row.assignee_id === "number" && row.assignee_id > 0) {
+        meta.monthSourceCounts[resolution.source] += 1;
+      }
+      return true;
     });
 
     const demandIds = demandRows
@@ -357,31 +381,32 @@ export async function GET(req: NextRequest) {
 
     const attachmentCountByDemand = new Map<number, number>();
     if (demandIds.length) {
-      const { data: attachmentRows, error: attachmentError } = await supabaseAdmin
-        .from("demand_attachments")
-        .select("demand_id")
-        .in("demand_id", demandIds);
-
-      if (attachmentError) {
-        console.error("[api/demands/stats/members] attachments query error", attachmentError);
-        return NextResponse.json(
-          { error: "failed_to_load_attachments", detail: attachmentError.message },
-          { status: 500 },
+      for (const demandIdChunk of chunkValues(demandIds, 100)) {
+        const attachmentRows = await fetchAllSupabaseRows<{
+          id: number;
+          demand_id: number | null;
+        }>((from, to) =>
+          supabaseAdmin
+            .from("demand_attachments")
+            .select("id, demand_id")
+            .in("demand_id", demandIdChunk)
+            .order("id", { ascending: true })
+            .range(from, to),
         );
-      }
 
-      for (const attachment of (attachmentRows || []) as { demand_id: number | null }[]) {
-        if (typeof attachment.demand_id !== "number") {
-          continue;
+        for (const attachment of attachmentRows) {
+          if (typeof attachment.demand_id !== "number") {
+            continue;
+          }
+          attachmentCountByDemand.set(
+            attachment.demand_id,
+            (attachmentCountByDemand.get(attachment.demand_id) || 0) + 1,
+          );
         }
-        attachmentCountByDemand.set(
-          attachment.demand_id,
-          (attachmentCountByDemand.get(attachment.demand_id) || 0) + 1,
-        );
       }
     }
 
-    const userRows = (usersResult.data || []) as {
+    const userRows = usersResult as {
       id: number;
       name: string | null;
       email: string | null;
@@ -389,7 +414,8 @@ export async function GET(req: NextRequest) {
       status: string | null;
     }[];
 
-    const scoreRows = (meta.scoringEnabled ? scoreRecordsResult.data || [] : []) as {
+    const scoreRows = (meta.scoringEnabled ? scoreRecordsResult : []) as {
+      id: number;
       target_user_id: number;
       scores: any;
       period: string;
@@ -401,7 +427,7 @@ export async function GET(req: NextRequest) {
     const demandTypeMap = new Map(
       demandTypeRows.map((demandType) => [
         demandType.id,
-        { name: demandType.name, code: demandType.code },
+        { name: demandType.name, code: demandType.code, config: demandType.config },
       ]),
     );
 
