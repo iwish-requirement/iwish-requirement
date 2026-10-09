@@ -3019,9 +3019,21 @@ interface ScorePeriodItem {
   updatedAt: string | null;
 }
 
+const toPeriodString = (date: Date): string =>
+  `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, "0")}`;
+
+const toDateTimeLocalString = (date: Date): string => {
+  const pad = (n: number) => `${n}`.padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
 const ScorePeriodsSettings = ({ canManage }: { canManage: boolean }) => {
   const [items, setItems] = useState<ScorePeriodItem[]>([]);
   const [year, setYear] = useState<string>(new Date().getFullYear().toString());
+  const [newPeriod, setNewPeriod] = useState<string>(() => {
+    const now = new Date();
+    return toPeriodString(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -3088,6 +3100,17 @@ const ScorePeriodsSettings = ({ canManage }: { canManage: boolean }) => {
   }, []);
 
   const upsertPeriod = async (item: ScorePeriodItem) => {
+    const toIsoOrNull = (value: string | null): string | null => {
+      if (!value) return null;
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date.toISOString();
+    };
+    const scoreWindowStart = toIsoOrNull(item.scoreWindowStart);
+    const scoreWindowEnd = toIsoOrNull(item.scoreWindowEnd);
+    if (scoreWindowStart && scoreWindowEnd && scoreWindowStart >= scoreWindowEnd) {
+      setError("评分窗口结束时间必须晚于开始时间");
+      return;
+    }
     try {
       setSaving(true);
       setError(null);
@@ -3097,8 +3120,8 @@ const ScorePeriodsSettings = ({ canManage }: { canManage: boolean }) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           period: item.period,
-          scoreWindowStart: item.scoreWindowStart,
-          scoreWindowEnd: item.scoreWindowEnd,
+          scoreWindowStart,
+          scoreWindowEnd,
           status: item.status,
         }),
       });
@@ -3210,21 +3233,28 @@ const ScorePeriodsSettings = ({ canManage }: { canManage: boolean }) => {
     }
   };
 
-  const handleAddCurrentPeriod = () => {
-    const now = new Date();
-    const yearStr = now.getFullYear().toString();
-    const monthStr = `${now.getMonth() + 1}`.padStart(2, "0");
-    const period = `${yearStr}-${monthStr}`;
-    if (items.some((it) => it.period === period)) {
-      setError("当前月份的评分周期已存在，可直接编辑评分窗口");
+  const handleAddPeriod = () => {
+    const match = /^(\d{4})-(\d{2})$/.exec(newPeriod.trim());
+    if (!match) {
+      setError("请选择要配置的服务月");
       return;
     }
+    const period = newPeriod.trim();
+    if (items.some((it) => it.period === period)) {
+      setError(`服务月 ${period} 的评分周期已存在，可直接编辑评分窗口`);
+      return;
+    }
+    const periodYear = Number.parseInt(match[1], 10);
+    const periodMonthIndex = Number.parseInt(match[2], 10) - 1;
+    const defaultStart = new Date(periodYear, periodMonthIndex + 1, 0, 0, 0);
+    const defaultEnd = new Date(periodYear, periodMonthIndex + 1, 5, 23, 59);
+    setError(null);
     setItems((prev) => [
       {
         id: 0,
         period,
-        scoreWindowStart: "",
-        scoreWindowEnd: "",
+        scoreWindowStart: toDateTimeLocalString(defaultStart),
+        scoreWindowEnd: toDateTimeLocalString(defaultEnd),
         status: "planned",
         createdAt: null,
         updatedAt: null,
@@ -3271,13 +3301,22 @@ const ScorePeriodsSettings = ({ canManage }: { canManage: boolean }) => {
           >
             重新加载
           </button>
-          <button
-            type="button"
-            onClick={handleAddCurrentPeriod}
-            className="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-          >
-            添加当前月份
-          </button>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">服务月</span>
+            <input
+              type="month"
+              value={newPeriod}
+              onChange={(e) => setNewPeriod(e.target.value)}
+              className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+            <button
+              type="button"
+              onClick={handleAddPeriod}
+              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+            >
+              添加服务月
+            </button>
+          </div>
         </div>
       </div>
 
@@ -3304,7 +3343,7 @@ const ScorePeriodsSettings = ({ canManage }: { canManage: boolean }) => {
         )}
         {!loading && items.length === 0 && (
           <div className="p-6 text-center text-slate-400 text-sm bg-white">
-            当前年份暂无评分周期配置，可点击右上角“添加当前月份”进行配置。
+            当前年份暂无评分周期配置，可在右上角选择服务月后点击“添加服务月”进行配置。
           </div>
         )}
         {!loading && items.length > 0 && (

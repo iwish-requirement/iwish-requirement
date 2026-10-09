@@ -347,16 +347,30 @@ export default function ScoringPage() {
         {!loading && pendingTasks.length > 0 && !isWindowOpen && (
           <div className="bg-white border border-slate-200 rounded-2xl p-6 mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="text-sm text-slate-600">
-              当前评分窗口尚未开启
-              {windowRangeText ? `，计划窗口时间：${windowRangeText}` : ""}。
-              评分窗口开启后将自动开放本周期的评分任务。
+              {isWindowClosed ? (
+                <>
+                  当前评分窗口已结束
+                  {windowRangeText ? `（${windowRangeText}）` : ""}。
+                  如需补录或调整，请联系管理员。
+                </>
+              ) : (
+                <>
+                  当前评分窗口尚未开启
+                  {windowRangeText ? `，计划窗口时间：${windowRangeText}` : ""}。
+                  评分窗口开启后将自动开放本周期的评分任务。
+                </>
+              )}
             </div>
             <button
               type="button"
               onClick={() => setShowUpcomingTasks((prev) => !prev)}
               className="inline-flex items-center gap-1 px-4 py-2 rounded-full text-xs font-bold bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-100"
             >
-              {showUpcomingTasks ? "收起即将开启的评分任务" : "查看即将开启的评分任务"}
+              {showUpcomingTasks
+                ? "收起评分任务"
+                : isWindowClosed
+                ? "查看本周期评分任务"
+                : "查看即将开启的评分任务"}
             </button>
           </div>
         )}
@@ -417,7 +431,7 @@ export default function ScoringPage() {
                     : "bg-slate-200 text-slate-500 cursor-not-allowed"
                 }`}
               >
-                {canInteract ? "开始评分" : "待窗口开启"} <ArrowRight className="w-5 h-5" />
+                {canInteract ? "开始评分" : isWindowClosed ? "窗口已结束" : "待窗口开启"} <ArrowRight className="w-5 h-5" />
               </button>
             </div>
           </div>
