@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getBusinessUserFromRequest } from "../../../../lib/serverAuth";
 import { ensureHasPermission } from "../../../../lib/serverPermissions";
 import { resolveStatsScopeForUser } from "../../../../lib/statScope";
+import { ANONYMOUS_SCORER_LABEL, canViewScorerIdentity } from "../../../../lib/scoreAnonymity";
 
 
 export const runtime = "edge";
@@ -33,7 +34,7 @@ type DepartmentRow = {
 type ScoreDetailItem = {
   id: number;
   taskId: number;
-  scorerId: number;
+  scorerId: number | null;
   scorerName: string;
   scorerEmail: string | null;
   departmentName: string | null;
@@ -101,13 +102,17 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ items: [] as ScoreDetailItem[] });
     }
 
-    const scorerIds = Array.from(
-      new Set(
-        records
-          .map((r) => r.scorer_id)
-          .filter((id): id is number => typeof id === "number" && id > 0),
-      ),
-    );
+    const revealScorer = canViewScorerIdentity(authResult.user?.email);
+
+    const scorerIds = revealScorer
+      ? Array.from(
+          new Set(
+            records
+              .map((r) => r.scorer_id)
+              .filter((id): id is number => typeof id === "number" && id > 0),
+          ),
+        )
+      : [];
 
     const departmentIds = Array.from(
       new Set(
@@ -197,9 +202,9 @@ export async function GET(req: NextRequest) {
       items.push({
         id: record.id,
         taskId: record.task_id,
-        scorerId: record.scorer_id,
-        scorerName: scorerNameCandidate,
-        scorerEmail: (user?.email ?? null) as string | null,
+        scorerId: revealScorer ? record.scorer_id : null,
+        scorerName: revealScorer ? scorerNameCandidate : ANONYMOUS_SCORER_LABEL,
+        scorerEmail: revealScorer ? ((user?.email ?? null) as string | null) : null,
         departmentName: (dept?.name ?? null) as string | null,
         period: record.period,
         scores,
