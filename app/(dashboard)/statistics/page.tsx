@@ -35,7 +35,7 @@ interface ScoreUserStat {
 interface ScoreDetailItem {
   id: number;
   taskId: number;
-  scorerId: number;
+  scorerId: number | null;
   scorerName: string;
   scorerEmail: string | null;
   departmentName: string | null;
@@ -1139,7 +1139,7 @@ export default function StatsPage() {
                     <div className="flex justify-between items-center mb-2">
                       <div>
                         <div className="text-xs font-semibold text-slate-700">
-                          来自：{record.scorerName}
+                          {record.scorerEmail ? `来自：${record.scorerName}` : record.scorerName || "匿名评分"}
                         </div>
                         {record.scorerEmail && (
                           <div className="text-[11px] text-slate-400">{record.scorerEmail}</div>
